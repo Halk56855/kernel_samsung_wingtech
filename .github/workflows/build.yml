@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout source
@@ -38,7 +38,6 @@ jobs:
         run: |
           mkdir clang
           cd clang
-
           curl -L \
           https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/508ea7dd0d8f681904d0422e98af9613aaabf180/clang-r574158.tar.gz \
           | tar -xz
@@ -51,20 +50,19 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-
           make ARCH=arm64 \
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
             rsuntk-a04_defconfig
-
           grep KSU .config
-
+          
+          # البناء بشكل متوازٍ، وإذا فشل يتم إعادة البناء بمسار أحادي لجلب الخطأ الحقيقي بوضوح
           make -j$(nproc) \
             ARCH=arm64 \
             LLVM=1 \
             LLVM_IAS=1 \
-            CC=clang
+            CC=clang || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang
 
       - name: Upload build outputs
         uses: actions/upload-artifact@v7.0.1
