@@ -13,7 +13,7 @@ jobs:
 
     - name: Integrate KernelSU legacy 1.1.1
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Legacy/KernelSU-Legacy/v1.1.1/kernel/setup.sh" | bash -
+        curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s v3.2.2-10-legacy
         
     - name: Install dependencies
       run: |
