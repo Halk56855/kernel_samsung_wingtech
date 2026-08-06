@@ -13,7 +13,7 @@ jobs:
 
     - name: Integrate ReSukiSU 4.1.0
       run: |
-        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s 4.1.0
         
     - name: Install dependencies
       run: |
