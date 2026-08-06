@@ -76,20 +76,20 @@ jobs:
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
           
-    - name: Copy Image to source tree
+    - name: Clone AnyKernel3
       run: |
-        cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
-        
-    - name: Archive output
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git anykernel
+
+    - name: Pack Kernel with AnyKernel3
       run: |
-        cd out/arch/arm64/boot/
-        zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
-        
-    - name: Upload kernel artifact
+        cp out/arch/arm64/boot/Image anykernel/
+        cp out/arch/arm64/boot/dtb* anykernel/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* anykernel/ 2>/dev/null || true
+        cd anykernel
+        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
+
+    - name: Upload Flashable Zip Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: built-kernel
-        path: |
-          out/arch/arm64/boot/Image
-          out/arch/arm64/boot/kernel.zip
-          .config
+        name: A04-KernelSU-Next-AnyKernel3
+        path: A04-KernelSU-Next-AnyKernel3.zip
