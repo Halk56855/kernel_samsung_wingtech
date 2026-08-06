@@ -11,9 +11,9 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate ReSukiSU 4.1.0
+    - name: Integrate KernelSU legacy 1.1.1
       run: |
-        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s 4.1.0
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Legacy/KernelSU-Legacy/v1.1.1/kernel/setup.sh" | bash -
         
     - name: Install dependencies
       run: |
