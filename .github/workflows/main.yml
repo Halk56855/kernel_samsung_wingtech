@@ -14,6 +14,7 @@ jobs:
     - name: Integrate KernelSU-Next 3.3.0
       run: |
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.3.0
+        
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -21,20 +22,23 @@ jobs:
           bc bison flex libssl-dev gcc g++ clang python3 \
           libncurses5-dev ccache make git zip \
           wget xz-utils device-tree-compiler libfdt-dev
+          
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC 4.9 toolchain
+    - name: Download GCC toolchain
       run: |
         cd toolchain/gcc
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xf
         tar -xf gcc.tar.xf -C ./
+        
     - name: Download Clang r383902
       run: |
         cd toolchain/clang
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+        
     - name: Export environment variables
       run: |
         echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
@@ -44,23 +48,43 @@ jobs:
         echo "KCFLAGS=-w" >> $GITHUB_ENV
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+        
     - name: Build kernel
       run: |
+        # 1. Generate base configuration
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          rsuntk-a04_defconfig rsuntk.config
+          rsuntk-a04_defconfig
+
+        # 2. Append the custom config fragment using the correct filename (rsuntk-config)
+        if [ -f "rsuntk-config" ]; then
+          cat rsuntk-config >> $(pwd)/out/.config
+        elif [ -f "arch/arm64/configs/rsuntk-config" ]; then
+          cat arch/arm64/configs/rsuntk-config >> $(pwd)/out/.config
+        fi
+
+        # 3. Update configuration dependencies
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          olddefconfig
+
+        # 4. Compile the kernel
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
+          
     - name: Copy Image to source tree
       run: |
         cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
+        
     - name: Archive output
       run: |
         cd out/arch/arm64/boot/
         zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
+        
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
