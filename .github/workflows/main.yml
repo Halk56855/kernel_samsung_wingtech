@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: debian:13
 
     steps:
     - name: Checkout source
@@ -13,11 +14,11 @@ jobs:
         
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        apt-get update
+        apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip patch \
-          wget xz-utils device-tree-compiler libfdt-dev
+          libncurses5-dev ccache make git zip patch libelf-dev \
+          wget xz-utils device-tree-compiler libfdt-dev build-essential
 
     - name: Direct Integration of KernelSU-Next (Legacy)
       run: |
@@ -67,6 +68,13 @@ jobs:
         
     - name: Build kernel
       run: |
+        # 0. Pre-build scripts explicitly to avoid host compilation race conditions
+        make -C $(pwd) O=$(pwd)/out \
+          KBUILD_CFLAGS="-std=gnu89 -fno-strict-prototypes -fcommon" \
+          KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          scripts
+
         # 1. Generate base configuration
         make -C $(pwd) O=$(pwd)/out \
           KBUILD_CFLAGS="-std=gnu89 -fno-strict-prototypes -fcommon" \
