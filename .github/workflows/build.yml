@@ -55,6 +55,20 @@ jobs:
           python3 -c '
           import os
 
+          # 0. Clean carriage returns and bad characters from all Kconfig files
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file == "Kconfig" or file.endswith(".Kconfig"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "rb") as f:
+                              content = f.read()
+                          cleaned = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                          with open(path, "wb") as f:
+                              f.write(cleaned)
+                      except Exception:
+                          pass
+
           # 1. Remove leading "+" from Himax Kconfig
           hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
           if os.path.exists(hx_kconfig):
@@ -64,15 +78,33 @@ jobs:
               with open(hx_kconfig, "w") as f:
                   f.writelines(new_lines)
 
-          # 2. Fix QOS Makefile extraneous text after else
+          # 2. Fix QOS Makefile: ensure only one else per conditional block
           qos_mk = "drivers/misc/mediatek/base/power/qos/Makefile"
           if os.path.exists(qos_mk):
               with open(qos_mk, "r") as f:
                   lines = f.readlines()
               new_lines = []
+              else_count = 0
+              in_conditional = False
               for line in lines:
-                  if line.strip().startswith("else") and line.strip() != "else":
-                      new_lines.append("else\n")
+                  stripped = line.strip()
+                  if stripped.startswith("ifeq") or stripped.startswith("ifneq") or stripped.startswith("ifdef") or stripped.startswith("ifndef"):
+                      in_conditional = True
+                      else_count = 0
+                      new_lines.append(line)
+                  elif stripped.startswith("endif"):
+                      in_conditional = False
+                      else_count = 0
+                      new_lines.append(line)
+                  elif stripped.startswith("else"):
+                      if in_conditional:
+                          if else_count == 0:
+                              new_lines.append("else\n")
+                              else_count += 1
+                          else:
+                              pass
+                      else:
+                          new_lines.append(line)
                   else:
                       new_lines.append(line)
               with open(qos_mk, "w") as f:
@@ -102,7 +134,7 @@ jobs:
               if "PWR_STATUS" not in content[:1000]:
                   content = header_fix + content
               
-              with open(mtk_spm_c, "w") as f:
+              with open(mtk_spm.c, "w") as f:
                   f.write(content)
           '
 
@@ -123,8 +155,8 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
-            KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=undeclared-identifier -Wno-implicit-function-declaration" \
-            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=undeclared-identifier -Wno-implicit-function-declaration"
+            KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration" \
+            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration"
 
       - name: Upload build outputs
         uses: actions/upload-artifact@v7.0.1
