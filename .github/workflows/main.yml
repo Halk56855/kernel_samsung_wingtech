@@ -62,8 +62,9 @@ jobs:
           echo "static inline void breakpoint(void) {" >> arch/arm64/include/asm/kgdb.h
           echo '    asm volatile("brk 0x401");' >> arch/arm64/include/asm/kgdb.h
           echo "}" >> arch/arm64/include/asm/kgdb.h
-          echo "#define BREAK_INSTR_SIZE    4" >> arch/arm64/include/asm/kgdb.h
+          echo "#ifndef CACHE_FLUSH_IS_SAFE" >> arch/arm64/include/asm/kgdb.h
           echo "#define CACHE_FLUSH_IS_SAFE 1" >> arch/arm64/include/asm/kgdb.h
+          echo "#endif" >> arch/arm64/include/asm/kgdb.h
           echo "#endif" >> arch/arm64/include/asm/kgdb.h
         fi
 
@@ -98,7 +99,7 @@ jobs:
         # 1. Generate base configuration first to create .config in out/
         make -C $(pwd) O=$(pwd)/out \
           KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
@@ -113,7 +114,7 @@ jobs:
         # 3. Update configuration dependencies
         make -C $(pwd) O=$(pwd)/out \
           KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           olddefconfig
@@ -121,7 +122,7 @@ jobs:
         # 4. Compile the kernel with full compatibility flags for drivers and KSU
         make -C $(pwd) O=$(pwd)/out \
           KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
