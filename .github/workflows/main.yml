@@ -51,6 +51,12 @@ jobs:
           echo "obj-\$(CONFIG_KSU) += ksu_compat.o" >> drivers/kernelsu/Makefile
         fi
 
+    - name: Fix KGDB asm constraint for Clang
+      run: |
+        if [ -f "arch/arm64/include/asm/kgdb.h" ]; then
+          sed -i 's/brk %0.*KGDB_COMPILED_DBG_BRK_IMM.*/brk 0x401/g' arch/arm64/include/asm/kgdb.h
+        fi
+
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang out
 
