@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout source
@@ -57,7 +57,6 @@ jobs:
             rsuntk-a04_defconfig
           grep KSU .config
           
-          # البناء بشكل متوازٍ، وإذا فشل يتم إعادة البناء بمسار أحادي لجلب الخطأ الحقيقي بوضوح
           make -j$(nproc) \
             ARCH=arm64 \
             LLVM=1 \
