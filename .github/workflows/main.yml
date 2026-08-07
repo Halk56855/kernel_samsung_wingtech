@@ -69,6 +69,7 @@ jobs:
       run: |
         # 1. Generate base configuration
         make -C $(pwd) O=$(pwd)/out \
+          KBUILD_CFLAGS="-std=gnu89 -fno-strict-prototypes -fcommon" \
           KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
@@ -83,13 +84,15 @@ jobs:
 
         # 3. Update configuration dependencies
         make -C $(pwd) O=$(pwd)/out \
+          KBUILD_CFLAGS="-std=gnu89 -fno-strict-prototypes -fcommon" \
           KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           olddefconfig
 
-        # 4. Compile the kernel with relaxed modern compiler error checks
+        # 4. Compile the kernel with full compatibility flags for drivers and KSU
         make -C $(pwd) O=$(pwd)/out \
+          KBUILD_CFLAGS="-std=gnu89 -fno-strict-prototypes -fcommon" \
           KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
