@@ -19,18 +19,24 @@ jobs:
           libncurses5-dev ccache make git zip patch \
           wget xz-utils device-tree-compiler libfdt-dev
 
-    - name: Integrate KernelSU-Next (Legacy)
+    - name: Direct Integration of KernelSU-Next (Legacy)
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
-          
-    - name: Check KernelSU files
-      run: |
-        if [ -d "drivers/kernelsu" ]; then
-          echo "KernelSU directory exists!"
-          ls -la drivers/kernelsu
-        else
-          echo "ERROR: KernelSU directory missing!"
-          ls -la drivers/
+        # إزالة أي مجلد قديم وضمان النظافة
+        rm -rf drivers/kernelsu
+        mkdir -p drivers/kernelsu
+        
+        # استنساخ فرع legacy مؤقتاً
+        git clone https://github.com/KernelSU-Next/KernelSU-Next.git --branch legacy temp_ksu
+        
+        # نقل محتويات مجلد kernel فقط إلى مسار drivers/kernelsu الصحيح
+        cp -r temp_ksu/kernel/* drivers/kernelsu/
+        
+        # تنظيف المجلد المؤقت
+        rm -rf temp_ksu
+        
+        # التأكد من إضافة مجلد kernelsu إلى ملف drivers/Makefile لكي تتم ترجمته
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
         fi
 
     - name: Prepare directories
