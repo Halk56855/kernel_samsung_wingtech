@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: debian:13
+    container: debian:11
 
     steps:
     - name: Checkout source
