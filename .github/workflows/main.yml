@@ -68,10 +68,17 @@ jobs:
           echo "#endif" >> arch/arm64/include/asm/kgdb.h
         fi
 
-    - name: Fix Clang stack pointer register constraint error
+    - name: Fix Clang stack pointer error safely
       run: |
         if [ -f "arch/arm64/include/asm/stack_pointer.h" ]; then
-          sed -i 's/register unsigned long current_stack_pointer asm ("sp");/register unsigned long current_stack_pointer __asm__("sp");/g' arch/arm64/include/asm/stack_pointer.h
+          echo "#ifndef __ASM_STACK_POINTER_H" > arch/arm64/include/asm/stack_pointer.h
+          echo "#define __ASM_STACK_POINTER_H" >> arch/arm64/include/asm/stack_pointer.h
+          echo "static inline unsigned long current_stack_pointer(void) {" >> arch/arm64/include/asm/stack_pointer.h
+          echo "    unsigned long sp;" >> arch/arm64/include/asm/stack_pointer.h
+          echo '    __asm__ __volatile__("mov %0, sp" : "=r" (sp));' >> arch/arm64/include/asm/stack_pointer.h
+          echo "    return sp;" >> arch/arm64/include/asm/stack_pointer.h
+          echo "}" >> arch/arm64/include/asm/stack_pointer.h
+          echo "#endif" >> arch/arm64/include/asm/stack_pointer.h
         fi
 
     - name: Prepare directories
