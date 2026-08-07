@@ -48,7 +48,6 @@ jobs:
 
       - name: Merge custom configs
         run: |
-          # دمج إعدادات KernelSU وملف Rissu المخصص مع ملف الـ defconfig الأساسي
           cat arch/arm64/configs/rsuntk-config >> arch/arm64/configs/rsuntk-a04_defconfig
 
       - name: Build kernel
@@ -61,10 +60,8 @@ jobs:
             CC=clang \
             rsuntk-a04_defconfig
           
-          # التحقق من تفعيل الكيرنل سيو داخل ملف التكوين
           grep KSU .config
           
-          # البناء بشكل متوازٍ، وإذا فشل يتم إعادة البناء بمسار أحادي لجلب الخطأ الحقيقي بوضوح
           make -j$(nproc) \
             ARCH=arm64 \
             LLVM=1 \
