@@ -69,7 +69,8 @@ jobs:
       run: |
         # 1. Generate base configuration
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
+          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
@@ -82,13 +83,15 @@ jobs:
 
         # 3. Update configuration dependencies
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
+          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           olddefconfig
 
-        # 4. Compile the kernel
+        # 4. Compile the kernel with relaxed modern compiler error checks
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -fno-strict-aliasing -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=misleading-indentation" \
+          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
           
