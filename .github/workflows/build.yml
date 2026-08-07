@@ -50,12 +50,21 @@ jobs:
         run: |
           cat arch/arm64/configs/rsuntk-config >> arch/arm64/configs/rsuntk-a04_defconfig
 
-      - name: Fix Source Issues Automatically
+      - name: Fix Source and Kconfig Issues Automatically
         run: |
           python3 -c '
           import os
 
-          # 1. Fix QOS Makefile extraneous text after else
+          # 1. Remove leading "+" from Himax Kconfig
+          hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
+          if os.path.exists(hx_kconfig):
+              with open(hx_kconfig, "r") as f:
+                  lines = f.readlines()
+              new_lines = [line[1:] if line.startswith("+") else line for line in lines]
+              with open(hx_kconfig, "w") as f:
+                  f.writelines(new_lines)
+
+          # 2. Fix QOS Makefile extraneous text after else
           qos_mk = "drivers/misc/mediatek/base/power/qos/Makefile"
           if os.path.exists(qos_mk):
               with open(qos_mk, "r") as f:
@@ -69,7 +78,7 @@ jobs:
               with open(qos_mk, "w") as f:
                   f.writelines(new_lines)
 
-          # 2. Fix mtk_spm.c missing declarations and prototypes
+          # 3. Fix mtk_spm.c missing declarations and prototypes
           mtk_spm_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm.c"
           if os.path.exists(mtk_spm_c):
               with open(mtk_spm_c, "r") as f:
