@@ -98,8 +98,8 @@ jobs:
       run: |
         # 1. Generate base configuration first to create .config in out/
         make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
+          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
@@ -113,16 +113,16 @@ jobs:
 
         # 3. Update configuration dependencies
         make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
+          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           olddefconfig
 
         # 4. Compile the kernel with full compatibility flags for drivers and KSU
         make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined" \
+          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
+          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
           CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
