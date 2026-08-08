@@ -137,7 +137,7 @@ jobs:
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
 
-          # 4. Fix mtk_spm_twam.c include and missing definitions safely
+          # 4. Fix mtk_spm_twam.c include and missing definitions safely (Without conflicting ISRM/ISRC macros)
           mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
           if os.path.exists(mtk_twam_c):
               with open(mtk_twam_c, "r") as f:
@@ -157,16 +157,11 @@ jobs:
               #ifndef SPM_IRQ_MASK
               #define SPM_IRQ_MASK 0x0B4
               #endif
-              #ifndef ISRM_TWAM
-              #define ISRM_TWAM (1U << 10)
-              #endif
               #ifndef SPM_IRQ_STA
               #define SPM_IRQ_STA 0x0B8
               #endif
-              #ifndef ISRC_TWAM
-              #define ISRC_TWAM (1U << 10)
-              #endif
               """
+              # Remove old conflicting injections if present
               twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
               twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
 
