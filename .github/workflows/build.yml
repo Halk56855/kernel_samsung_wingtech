@@ -136,6 +136,15 @@ jobs:
               
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
+
+          # 4. Fix mtk_spm_twam.c include brackets for local header
+          mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
+          if os.path.exists(mtk_twam_c):
+              with open(mtk_twam_c, "r") as f:
+                  twam_content = f.read()
+              twam_content = twam_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
+              with open(mtk_twam_c, "w") as f:
+                  f.write(twam_content)
           '
 
       - name: Build kernel
