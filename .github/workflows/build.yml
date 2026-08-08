@@ -171,12 +171,17 @@ jobs:
               with open(mtk_twam_c, "w") as f:
                   f.write(twam_content)
 
-          # 5. Fix mtk_spm_irq.c missing definitions cleanly
+          # 5. Fix mtk_spm_irq.c includes and missing definitions cleanly
           mtk_irq_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_irq.c"
           if os.path.exists(mtk_irq_c):
               with open(mtk_irq_c, "r") as f:
                   irq_content = f.read()
               
+              irq_content = irq_content.replace("#include <mtk_spm.h>", "#include \"mtk_spm.h\"")
+              irq_content = irq_content.replace("#include <mtk_spm_irq.h>", "#include \"mtk_spm_irq.h\"")
+              irq_content = irq_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
+              irq_content = irq_content.replace("#include <mtk_spm_irq_edge.h>", "#include \"mtk_spm_irq_edge.h\"")
+
               irq_fixes = textwrap.dedent("""
               #ifndef SPM_SW_RSV_0
               #define SPM_SW_RSV_0 0x010
