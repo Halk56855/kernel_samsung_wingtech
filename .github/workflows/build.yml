@@ -75,9 +75,10 @@ jobs:
           import os
           import textwrap
 
+          # 0. Clean carriage returns across all source, header, Kconfig, and Makefile files
           for root, dirs, files in os.walk("."):
               for file in files:
-                  if file == "Kconfig" or file.endswith(".Kconfig"):
+                  if file.endswith((".c", ".h", "Kconfig", "Makefile")) or file == "Kconfig" or file.endswith(".Kconfig"):
                       path = os.path.join(root, file)
                       try:
                           with open(path, "rb") as f:
@@ -228,6 +229,27 @@ jobs:
                   irq_content = irq_fixes + irq_content
               with open(mtk_irq_c, "w") as f:
                   f.write(irq_content)
+
+          mtk_dram_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_dram.c"
+          if os.path.exists(mtk_dram_c):
+              with open(mtk_dram_c, "r") as f:
+                  dram_content = f.read()
+              dram_content = dram_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
+              dram_fixes = textwrap.dedent("""
+              #ifndef SPM_POWER_ON_VAL0
+              #define SPM_POWER_ON_VAL0 0x100
+              #endif
+              #ifndef R0_SC_PHYPLL_MODE_SW_PCM
+              #define R0_SC_PHYPLL_MODE_SW_PCM (1U << 14)
+              #endif
+              #ifndef R0_SC_PHYPLL2_MODE_SW_PCM
+              #define R0_SC_PHYPLL2_MODE_SW_PCM (1U << 15)
+              #endif
+              """)
+              if "SPM_POWER_ON_VAL0" not in dram_content[:1500]:
+                  dram_content = dram_fixes + dram_content
+              with open(mtk_dram_c, "w") as f:
+                  f.write(dram_content)
           '
 
       - name: Build kernel
