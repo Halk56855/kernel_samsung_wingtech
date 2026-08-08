@@ -73,7 +73,7 @@ jobs:
 
       - name: Fix Source and Kconfig Issues Automatically
         run: |
-          python3 -c '
+          python3 - << 'EOF'
           import os
           import re
           import textwrap
@@ -98,10 +98,10 @@ jobs:
           if os.path.exists(conf_c):
               with open(conf_c, "r", encoding="utf-8", errors="ignore") as f:
                   cc = f.read()
-              cc = cc.replace("*** Configuration file \"%s\" not found!", "*** Configuration file not found!")
-              cc = cc.replace("*** Can\'t find default configuration \"%s\"!", "*** Can\'t find default configuration!")
-              cc = cc.replace("*** Can\'t read seed configuration \"%s\"!", "*** Can\'t read seed configuration!")
-              cc = cc.replace("*** KCONFIG_ALLCONFIG set, but no \"%s\" or \"all.config\" file found", "*** KCONFIG_ALLCONFIG set, but no config file found")
+              cc = cc.replace('*** Configuration file "%s" not found!', '*** Configuration file not found!')
+              cc = cc.replace("*** Can't find default configuration \"%s\"!", "*** Can't find default configuration!")
+              cc = cc.replace("*** Can't read seed configuration \"%s\"!", "*** Can't read seed configuration!")
+              cc = cc.replace('*** KCONFIG_ALLCONFIG set, but no "%s" or "all.config" file found', '*** KCONFIG_ALLCONFIG set, but no config file found')
               with open(conf_c, "w", encoding="utf-8") as f:
                   f.write(cc)
 
@@ -355,7 +355,7 @@ jobs:
               internal_content = internal_fixes + internal_content
               with open(mtk_internal_c, "w") as f:
                   f.write(internal_content)
-          '
+          EOF
 
       - name: Build kernel
         run: |
