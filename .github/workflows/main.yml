@@ -62,9 +62,10 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تعطيل ميزة IKHEADERS لمنع خطأ Broken pipe
-        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || echo "CONFIG_IKHEADERS not found"
+        # تفعيل KernelSU وتعطيل IKHEADERS تلقائياً لمنع الأخطاء
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         echo "CONFIG_IKHEADERS=n" >> $(pwd)/out/.config
+        echo "CONFIG_KSU=y" >> $(pwd)/out/.config
 
         # محاولة البناء بالتوازي، وإذا حدث أي خطأ يتم إعادة البناء بـ -j1 لطباعة الخطأ بدقة
         make -C $(pwd) O=$(pwd)/out \
