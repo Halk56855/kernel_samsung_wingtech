@@ -14,7 +14,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup KernelSU
+      - name: Setup KernelSU for Non-GKI (Manual Hook)
         run: |
           if [ ! -d "drivers/kernelsu" ]; then
             git clone https://github.com/rsuntk/KernelSU.git temp_ksu
@@ -26,6 +26,7 @@ jobs:
             rm -rf temp_ksu
           fi
           
+          # تأكد من ربط KernelSU بملفات drivers الرئيسية
           if ! grep -q "kernelsu" drivers/Kconfig; then
             echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           fi
@@ -68,6 +69,9 @@ jobs:
       - name: Merge custom configs
         run: |
           cat arch/arm64/configs/rsuntk-config >> arch/arm64/configs/rsuntk-a04_defconfig
+          # تفعيل خيار Manual Hook الخاص بنواتك Non-GKI
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/rsuntk-a04_defconfig
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/rsuntk-a04_defconfig
 
       - name: Fix Source and Kconfig Issues Automatically
         run: |
