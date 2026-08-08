@@ -54,6 +54,7 @@ jobs:
         run: |
           python3 -c '
           import os
+          import textwrap
 
           # 0. Clean carriage returns and bad characters from all Kconfig files
           for root, dirs, files in os.walk("."):
@@ -116,7 +117,7 @@ jobs:
               with open(mtk_spm_c, "r") as f:
                   content = f.read()
               
-              header_fix = """
+              header_fix = textwrap.dedent("""
               #ifndef PWR_STATUS
               #define PWR_STATUS 0x000
               #endif
@@ -130,21 +131,21 @@ jobs:
               #define SPARE_ACK_MASK 0x00C
               #endif
               extern unsigned int spm_read(unsigned int offset);
-              """
+              """)
               if "PWR_STATUS" not in content[:1000]:
                   content = header_fix + content
               
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
 
-          # 4. Fix mtk_spm_twam.c include and missing definitions safely (Without conflicting ISRM/ISRC macros)
+          # 4. Fix mtk_spm_twam.c include and missing definitions safely
           mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
           if os.path.exists(mtk_twam_c):
               with open(mtk_twam_c, "r") as f:
                   twam_content = f.read()
               twam_content = twam_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
               
-              twam_fixes = """
+              twam_fixes = textwrap.dedent("""
               #ifndef SPM_TWAM_CON
               #define SPM_TWAM_CON 0x0A0
               #endif
@@ -160,8 +161,7 @@ jobs:
               #ifndef SPM_IRQ_STA
               #define SPM_IRQ_STA 0x0B8
               #endif
-              """
-              # Remove old conflicting injections if present
+              """)
               twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
               twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
 
@@ -170,6 +170,44 @@ jobs:
 
               with open(mtk_twam_c, "w") as f:
                   f.write(twam_content)
+
+          # 5. Fix mtk_spm_irq.c missing definitions cleanly
+          mtk_irq_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_irq.c"
+          if os.path.exists(mtk_irq_c):
+              with open(mtk_irq_c, "r") as f:
+                  irq_content = f.read()
+              
+              irq_fixes = textwrap.dedent("""
+              #ifndef SPM_SW_RSV_0
+              #define SPM_SW_RSV_0 0x010
+              #endif
+              #ifndef SPM_IRQ_STA
+              #define SPM_IRQ_STA 0x0B8
+              #endif
+              #ifndef SPM_TWAM_LAST_STA0
+              #define SPM_TWAM_LAST_STA0 0x0A4
+              #endif
+              #ifndef SPM_TWAM_LAST_STA1
+              #define SPM_TWAM_LAST_STA1 0x0A8
+              #endif
+              #ifndef SPM_TWAM_LAST_STA2
+              #define SPM_TWAM_LAST_STA2 0x0AC
+              #endif
+              #ifndef SPM_TWAM_LAST_STA3
+              #define SPM_TWAM_LAST_STA3 0x0B0
+              #endif
+              #ifndef SPM_TWAM_CON
+              #define SPM_TWAM_CON 0x0A0
+              #endif
+              #ifndef SPM_TWAM_IDLE_SEL
+              #define SPM_TWAM_IDLE_SEL 0x0C0
+              #endif
+              """)
+              if "SPM_SW_RSV_0" not in irq_content[:1500]:
+                  irq_content = irq_fixes + irq_content
+              
+              with open(mtk_irq_c, "w") as f:
+                  f.write(irq_content)
           '
 
       - name: Build kernel
