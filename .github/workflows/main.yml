@@ -21,7 +21,8 @@ jobs:
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
           libncurses5-dev ccache make git zip \
-          wget xz-utils device-tree-compiler libfdt-dev
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi
 
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
@@ -42,6 +43,7 @@ jobs:
     - name: Export environment variables
       run: |
         echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
         echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
@@ -60,10 +62,20 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
+        # تعطيل ميزة IKHEADERS لمنع خطأ Broken pipe
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || echo "CONFIG_IKHEADERS not found"
+        echo "CONFIG_IKHEADERS=n" >> $(pwd)/out/.config
+
+        # محاولة البناء بالتوازي، وإذا حدث أي خطأ يتم إعادة البناء بـ -j1 لطباعة الخطأ بدقة
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          -j$(nproc)
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
 
     - name: Copy Image to source tree
       run: |
