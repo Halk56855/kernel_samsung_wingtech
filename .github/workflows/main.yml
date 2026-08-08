@@ -11,9 +11,9 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate KernelSU-Next 1.1.1
+    - name: Integrate KernelSU-Next (Legacy)
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.1.1
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
     - name: Install dependencies
       run: |
@@ -26,11 +26,11 @@ jobs:
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC 4.9 toolchain
+    - name: Download GCC toolchain
       run: |
         cd toolchain/gcc
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xf
-        tar -xf gcc.tar.xf -C ./
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        tar -xf gcc.tar.xz -C ./
 
     - name: Download Clang r383902
       run: |
@@ -54,7 +54,11 @@ jobs:
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          rsuntk-a04_defconfig rsuntk.config
+          rsuntk-a04_defconfig
+
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        fi
 
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
