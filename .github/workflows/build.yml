@@ -85,13 +85,14 @@ jobs:
                       try:
                           with open(path, "rb") as f:
                               content = f.read()
-                          cleaned = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                          content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                          if b"spm" in path.encode() or file.endswith((".c", ".h")):
+                              content = content.replace(b"\\\"", b"\"")
                           with open(path, "wb") as f:
-                              f.write(cleaned)
+                              f.write(content)
                       except Exception:
                           pass
 
-          # Global fix for all local mtk_spm headers using angled brackets instead of quotes
           spm_dir = "drivers/misc/mediatek/base/power/spm/mt6765"
           if os.path.exists(spm_dir):
               for fname in os.listdir(spm_dir):
@@ -99,9 +100,25 @@ jobs:
                       fpath = os.path.join(spm_dir, fname)
                       with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
                           c = f.read()
-                      c = re.sub(r"#include\s*<\s*(mtk_spm[^>]+)\s*>", r"#include \"\1\"", c)
+                      c = re.sub(r"#include\s*<\s*(mtk_spm[^>]+)\s*>", lambda m: f"#include \"{m.group(1)}\"", c)
                       with open(fpath, "w", encoding="utf-8") as f:
                           f.write(c)
+
+          spm_internal_h = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_internal.h"
+          if os.path.exists(spm_internal_h):
+              with open(spm_internal_h, "r", encoding="utf-8", errors="ignore") as f:
+                  h_content = f.read()
+              if "typedef void (*twam_handler_t)" not in h_content:
+                  type_defs = textwrap.dedent("""
+                  #ifndef __TWAM_HANDLER_T_DEFINED
+                  #define __TWAM_HANDLER_T_DEFINED
+                  struct twam_cfg;
+                  typedef void (*twam_handler_t)(void);
+                  #endif
+                  """)
+                  h_content = type_defs + h_content
+              with open(spm_internal_h, "w", encoding="utf-8") as f:
+                  f.write(h_content)
 
           hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
           if os.path.exists(hx_kconfig):
