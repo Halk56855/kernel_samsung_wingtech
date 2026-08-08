@@ -11,9 +11,9 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate KernelSU-Next 3.3.0
+    - name: Integrate ReSukiSU
       run: |
-        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s 4.1.3
+        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
         
     - name: Install dependencies
       run: |
@@ -86,10 +86,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* anykernel/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* anykernel/ 2>/dev/null || true
         cd anykernel
-        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload Flashable Zip Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-KernelSU-Next-AnyKernel3
-        path: A04-KernelSU-Next-AnyKernel3.zip
+        name: A04-ReSukiSU-AnyKernel3
+        path: A04-ReSukiSU-AnyKernel3.zip
