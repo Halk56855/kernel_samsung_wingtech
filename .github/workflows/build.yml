@@ -280,6 +280,30 @@ jobs:
               #ifndef SPM_SW_RSV_2
               #define SPM_SW_RSV_2 0x608
               #endif
+              #ifndef SPM_WAKEUP_EXT_STA
+              #define SPM_WAKEUP_EXT_STA 0x20C
+              #endif
+              #ifndef SPM_BSI_D0_SR
+              #define SPM_BSI_D0_SR 0x304
+              #endif
+              #ifndef SPM_BSI_D1_SR
+              #define SPM_BSI_D1_SR 0x308
+              #endif
+              #ifndef PCM_REG13_DATA
+              #define PCM_REG13_DATA 0x008
+              #endif
+              #ifndef SUBSYS_IDLE_STA
+              #define SUBSYS_IDLE_STA 0x500
+              #endif
+              #ifndef SPM_SRC_REQ
+              #define SPM_SRC_REQ 0x404
+              #endif
+              #ifndef SPM_FLAG1_BIG_BUCK_OFF_ENABLE
+              #define SPM_FLAG1_BIG_BUCK_OFF_ENABLE (1U << 0)
+              #endif
+              #ifndef SPM_FLAG1_BIG_BUCK_ON_ENABLE
+              #define SPM_FLAG1_BIG_BUCK_ON_ENABLE (1U << 1)
+              #endif
               """)
               internal_content = internal_fixes + internal_content
               with open(mtk_internal_c, "w") as f:
