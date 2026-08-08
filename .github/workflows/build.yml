@@ -134,7 +134,7 @@ jobs:
               if "PWR_STATUS" not in content[:1000]:
                   content = header_fix + content
               
-              with open(mtk_spm.c, "w") as f:
+              with open(mtk_spm_c, "w") as f:
                   f.write(content)
           '
 
