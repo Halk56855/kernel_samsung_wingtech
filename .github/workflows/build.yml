@@ -353,6 +353,8 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
             rsuntk-a04_defconfig
           
           grep KSU .config
@@ -362,8 +364,10 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
             KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration" \
-            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration"
+            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang HOSTCC=gcc HOSTCXX=g++ KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration"
 
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
