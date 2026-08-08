@@ -6,97 +6,39 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: debian:11
 
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
-        
+
+    - name: Integrate KernelSU-Next 1.1.1
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.1.1
+
     - name: Install dependencies
       run: |
-        apt-get update
-        apt-get install -y \
+        sudo apt-get update
+        sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip patch libelf-dev \
-          wget xz-utils device-tree-compiler libfdt-dev build-essential
-
-    - name: Direct Integration of KernelSU-Next (Legacy)
-      run: |
-        # إزالة أي مجلد قديم وضمان النظافة
-        rm -rf drivers/kernelsu
-        mkdir -p drivers/kernelsu
-        
-        # استنساخ فرع legacy مؤقتاً
-        git clone https://github.com/KernelSU-Next/KernelSU-Next.git --branch legacy temp_ksu
-        
-        # نقل محتويات مجلد kernel فقط إلى مسار drivers/kernelsu الصحيح
-        cp -r temp_ksu/kernel/* drivers/kernelsu/
-        
-        # تنظيف المجلد المؤقت
-        rm -rf temp_ksu
-        
-        # التأكد من إضافة مجلد kernelsu إلى ملف drivers/Makefile لكي تتم ترجمته
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
-        fi
-
-        # حل نهائي لخطأ undefined reference لـ ksu_handle_devpts
-        if [ -f "drivers/kernelsu/ksu.c" ]; then
-          if ! grep -q "ksu_handle_devpts" drivers/kernelsu/ksu.c; then
-            echo "" >> drivers/kernelsu/ksu.c
-            echo "int ksu_handle_devpts(void *inode) { return 0; }" >> drivers/kernelsu/ksu.c
-          fi
-        else
-          echo "int ksu_handle_devpts(void *inode) { return 0; }" > drivers/kernelsu/ksu_compat.c
-          echo "obj-\$(CONFIG_KSU) += ksu_compat.o" >> drivers/kernelsu/Makefile
-        fi
-
-    - name: Fix KGDB asm constraint for Clang safely
-      run: |
-        if [ -f "arch/arm64/include/asm/kgdb.h" ]; then
-          echo "#ifndef __ARM_KGDB_H" > arch/arm64/include/asm/kgdb.h
-          echo "#define __ARM_KGDB_H" >> arch/arm64/include/asm/kgdb.h
-          echo "#include <asm/ptrace.h>" >> arch/arm64/include/asm/kgdb.h
-          echo "struct pt_regs;" >> arch/arm64/include/asm/kgdb.h
-          echo "extern void kgdb_handle_breakpoint(struct pt_regs *regs);" >> arch/arm64/include/asm/kgdb.h
-          echo "static inline void breakpoint(void) {" >> arch/arm64/include/asm/kgdb.h
-          echo '    asm volatile("brk 0x401");' >> arch/arm64/include/asm/kgdb.h
-          echo "}" >> arch/arm64/include/asm/kgdb.h
-          echo "#ifndef CACHE_FLUSH_IS_SAFE" >> arch/arm64/include/asm/kgdb.h
-          echo "#define CACHE_FLUSH_IS_SAFE 1" >> arch/arm64/include/asm/kgdb.h
-          echo "#endif" >> arch/arm64/include/asm/kgdb.h
-          echo "#endif" >> arch/arm64/include/asm/kgdb.h
-        fi
-
-    - name: Fix Clang stack pointer error safely
-      run: |
-        if [ -f "arch/arm64/include/asm/stack_pointer.h" ]; then
-          echo "#ifndef __ASM_STACK_POINTER_H" > arch/arm64/include/asm/stack_pointer.h
-          echo "#define __ASM_STACK_POINTER_H" >> arch/arm64/include/asm/stack_pointer.h
-          echo "static inline unsigned long current_stack_pointer(void) {" >> arch/arm64/include/asm/stack_pointer.h
-          echo "    unsigned long sp;" >> arch/arm64/include/asm/stack_pointer.h
-          echo '    __asm__ __volatile__("mov %0, sp" : "=r" (sp));' >> arch/arm64/include/asm/stack_pointer.h
-          echo "    return sp;" >> arch/arm64/include/asm/stack_pointer.h
-          echo "}" >> arch/arm64/include/asm/stack_pointer.h
-          echo "#endif" >> arch/arm64/include/asm/stack_pointer.h
-        fi
+          libncurses5-dev ccache make git zip \
+          wget xz-utils device-tree-compiler libfdt-dev
 
     - name: Prepare directories
-      run: mkdir -p toolchain/gcc toolchain/clang out
+      run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC toolchain
+    - name: Download GCC 4.9 toolchain
       run: |
         cd toolchain/gcc
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xf
         tar -xf gcc.tar.xf -C ./
-        
+
     - name: Download Clang r383902
       run: |
         cd toolchain/clang
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
-        
+
     - name: Export environment variables
       run: |
         echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
@@ -106,54 +48,33 @@ jobs:
         echo "KCFLAGS=-w" >> $GITHUB_ENV
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
-        
+
     - name: Build kernel
       run: |
-        # 1. Generate base configuration first to create .config in out/
         make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          rsuntk-a04_defconfig
+          rsuntk-a04_defconfig rsuntk.config
 
-        # 2. Append the custom config fragment using the correct filename (rsuntk-config)
-        if [ -f "rsuntk-config" ]; then
-          cat rsuntk-config >> $(pwd)/out/.config
-        elif [ -f "arch/arm64/configs/rsuntk-config" ]; then
-          cat arch/arm64/configs/rsuntk-config >> $(pwd)/out/.config
-        fi
-
-        # 3. Update configuration dependencies
         make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          olddefconfig
-
-        # 4. Compile the kernel with full compatibility flags for drivers and KSU
-        make -C $(pwd) O=$(pwd)/out \
-          KBUILD_CFLAGS="-std=gnu89 -fcommon -Wno-error -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          KCFLAGS="-w -Wno-error -Wno-macro-redefined -Wno-array-bounds -Wno-gnu-variable-sized-type-not-at-end" \
-          CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
-          
-    - name: Clone AnyKernel3
-      run: |
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git anykernel
 
-    - name: Pack Kernel with AnyKernel3
+    - name: Copy Image to source tree
       run: |
-        cp out/arch/arm64/boot/Image anykernel/
-        cp out/arch/arm64/boot/dtb* anykernel/ 2>/dev/null || true
-        cp out/arch/arm64/boot/dtbo* anykernel/ 2>/dev/null || true
-        cd anykernel
-        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
+        cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
 
-    - name: Upload Flashable Zip Artifact
+    - name: Archive output
+      run: |
+        cd out/arch/arm64/boot/
+        zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
+
+    - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-KernelSU-Next-AnyKernel3
-        path: A04-KernelSU-Next-AnyKernel3.zip
+        name: built-kernel
+        path: |
+          out/arch/arm64/boot/Image
+          out/arch/arm64/boot/kernel.zip
+          .config
