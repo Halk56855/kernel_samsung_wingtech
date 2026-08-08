@@ -14,6 +14,25 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Setup KernelSU
+        run: |
+          if [ ! -d "drivers/kernelsu" ]; then
+            git clone https://github.com/rsuntk/KernelSU.git temp_ksu
+            if [ -d "temp_ksu/kernel" ]; then
+              cp -r temp_ksu/kernel drivers/kernelsu
+            else
+              cp -r temp_ksu drivers/kernelsu
+            fi
+            rm -rf temp_ksu
+          fi
+          
+          if ! grep -q "kernelsu" drivers/Kconfig; then
+            echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          fi
+          if ! grep -q "kernelsu" drivers/Makefile; then
+            echo 'obj-y += kernelsu/' >> drivers/Makefile
+          fi
+
       - name: Install dependencies
         run: |
           sudo apt update
@@ -56,7 +75,6 @@ jobs:
           import os
           import textwrap
 
-          # 0. Clean carriage returns and bad characters from all Kconfig files
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file == "Kconfig" or file.endswith(".Kconfig"):
@@ -70,7 +88,6 @@ jobs:
                       except Exception:
                           pass
 
-          # 1. Remove leading "+" from Himax Kconfig
           hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
           if os.path.exists(hx_kconfig):
               with open(hx_kconfig, "r") as f:
@@ -79,7 +96,6 @@ jobs:
               with open(hx_kconfig, "w") as f:
                   f.writelines(new_lines)
 
-          # 2. Fix QOS Makefile: ensure only one else per conditional block
           qos_mk = "drivers/misc/mediatek/base/power/qos/Makefile"
           if os.path.exists(qos_mk):
               with open(qos_mk, "r") as f:
@@ -111,12 +127,10 @@ jobs:
               with open(qos_mk, "w") as f:
                   f.writelines(new_lines)
 
-          # 3. Fix mtk_spm.c missing declarations and prototypes
           mtk_spm_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm.c"
           if os.path.exists(mtk_spm_c):
               with open(mtk_spm_c, "r") as f:
                   content = f.read()
-              
               header_fix = textwrap.dedent("""
               #ifndef PWR_STATUS
               #define PWR_STATUS 0x000
@@ -134,17 +148,14 @@ jobs:
               """)
               if "PWR_STATUS" not in content[:1000]:
                   content = header_fix + content
-              
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
 
-          # 4. Fix mtk_spm_twam.c include and missing definitions safely
           mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
           if os.path.exists(mtk_twam_c):
               with open(mtk_twam_c, "r") as f:
                   twam_content = f.read()
               twam_content = twam_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
-              
               twam_fixes = textwrap.dedent("""
               #ifndef SPM_TWAM_CON
               #define SPM_TWAM_CON 0x0A0
@@ -164,25 +175,30 @@ jobs:
               """)
               twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
               twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
-
               if "SPM_TWAM_CON" not in twam_content[:1500]:
                   twam_content = twam_fixes + twam_content
-
               with open(mtk_twam_c, "w") as f:
                   f.write(twam_content)
 
-          # 5. Fix mtk_spm_irq.c includes and missing definitions cleanly
           mtk_irq_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_irq.c"
           if os.path.exists(mtk_irq_c):
               with open(mtk_irq_c, "r") as f:
                   irq_content = f.read()
-              
               irq_content = irq_content.replace("#include <mtk_spm.h>", "#include \"mtk_spm.h\"")
               irq_content = irq_content.replace("#include <mtk_spm_irq.h>", "#include \"mtk_spm_irq.h\"")
               irq_content = irq_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
               irq_content = irq_content.replace("#include <mtk_spm_irq_edge.h>", "#include \"mtk_spm_irq_edge.h\"")
 
               irq_fixes = textwrap.dedent("""
+              #ifndef WAKE_SRC_R12_KP_IRQ_B
+              #define WAKE_SRC_R12_KP_IRQ_B (1U << 0)
+              #endif
+              #ifndef WAKE_SRC_R12_MD1_WDT_B
+              #define WAKE_SRC_R12_MD1_WDT_B (1U << 1)
+              #endif
+              #ifndef WAKE_SRC_R12_SYS_CIRQ_IRQ_B
+              #define WAKE_SRC_R12_SYS_CIRQ_IRQ_B (1U << 2)
+              #endif
               #ifndef SPM_SW_RSV_0
               #define SPM_SW_RSV_0 0x010
               #endif
@@ -208,9 +224,8 @@ jobs:
               #define SPM_TWAM_IDLE_SEL 0x0C0
               #endif
               """)
-              if "SPM_SW_RSV_0" not in irq_content[:1500]:
+              if "WAKE_SRC_R12_KP_IRQ_B" not in irq_content[:1500]:
                   irq_content = irq_fixes + irq_content
-              
               with open(mtk_irq_c, "w") as f:
                   f.write(irq_content)
           '
