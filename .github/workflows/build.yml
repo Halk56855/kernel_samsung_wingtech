@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
@@ -167,7 +167,6 @@ jobs:
               #define ISRC_TWAM (1U << 10)
               #endif
               """
-              # Remove old raw definitions if any exist to prevent redefinition errors
               twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
               twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
 
@@ -199,7 +198,7 @@ jobs:
             || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration"
 
       - name: Upload build outputs
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v4
         with:
           name: atlas-kernel
           path: |
