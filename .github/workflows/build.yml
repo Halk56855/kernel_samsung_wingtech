@@ -75,6 +75,7 @@ jobs:
         run: |
           python3 -c '
           import os
+          import re
           import textwrap
 
           for root, dirs, files in os.walk("."):
@@ -89,6 +90,18 @@ jobs:
                               f.write(cleaned)
                       except Exception:
                           pass
+
+          # Global fix for all local mtk_spm headers using angled brackets instead of quotes
+          spm_dir = "drivers/misc/mediatek/base/power/spm/mt6765"
+          if os.path.exists(spm_dir):
+              for fname in os.listdir(spm_dir):
+                  if fname.endswith((".c", ".h")):
+                      fpath = os.path.join(spm_dir, fname)
+                      with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                          c = f.read()
+                      c = re.sub(r"#include\s*<\s*(mtk_spm[^>]+)\s*>", r"#include \"\1\"", c)
+                      with open(fpath, "w", encoding="utf-8") as f:
+                          f.write(c)
 
           hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
           if os.path.exists(hx_kconfig):
@@ -156,7 +169,6 @@ jobs:
           if os.path.exists(mtk_twam_c):
               with open(mtk_twam_c, "r") as f:
                   twam_content = f.read()
-              twam_content = twam_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
               twam_fixes = textwrap.dedent("""
               #ifndef SPM_TWAM_CON
               #define SPM_TWAM_CON 0x0A0
@@ -184,11 +196,6 @@ jobs:
           if os.path.exists(mtk_irq_c):
               with open(mtk_irq_c, "r") as f:
                   irq_content = f.read()
-              irq_content = irq_content.replace("#include <mtk_spm.h>", "#include \"mtk_spm.h\"")
-              irq_content = irq_content.replace("#include <mtk_spm_irq.h>", "#include \"mtk_spm_irq.h\"")
-              irq_content = irq_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
-              irq_content = irq_content.replace("#include <mtk_spm_irq_edge.h>", "#include \"mtk_spm_irq_edge.h\"")
-
               irq_fixes = textwrap.dedent("""
               #ifndef WAKE_SRC_R12_KP_IRQ_B
               #define WAKE_SRC_R12_KP_IRQ_B (1U << 0)
@@ -232,7 +239,6 @@ jobs:
           if os.path.exists(mtk_dram_c):
               with open(mtk_dram_c, "r") as f:
                   dram_content = f.read()
-              dram_content = dram_content.replace("#include <mtk_spm_internal.h>", "#include \"mtk_spm_internal.h\"")
               dram_fixes = textwrap.dedent("""
               #ifndef SPM_POWER_ON_VAL0
               #define SPM_POWER_ON_VAL0 0x100
@@ -303,6 +309,18 @@ jobs:
               #endif
               #ifndef SPM_FLAG1_BIG_BUCK_ON_ENABLE
               #define SPM_FLAG1_BIG_BUCK_ON_ENABLE (1U << 1)
+              #endif
+              #ifndef PCM_REG_DATA_INI
+              #define PCM_REG_DATA_INI 0x014
+              #endif
+              #ifndef SPM_SW_RSV_0
+              #define SPM_SW_RSV_0 0x010
+              #endif
+              #ifndef PCM_REG12_EXT_DATA
+              #define PCM_REG12_EXT_DATA 0x018
+              #endif
+              #ifndef SPM_WAKEUP_STA
+              #define SPM_WAKEUP_STA 0x0B4
               #endif
               """)
               internal_content = internal_fixes + internal_content
