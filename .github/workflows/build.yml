@@ -137,7 +137,7 @@ jobs:
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
 
-          # 4. Fix mtk_spm_twam.c include and missing definitions
+          # 4. Fix mtk_spm_twam.c include and missing definitions safely
           mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
           if os.path.exists(mtk_twam_c):
               with open(mtk_twam_c, "r") as f:
@@ -167,6 +167,10 @@ jobs:
               #define ISRC_TWAM (1U << 10)
               #endif
               """
+              # Remove old raw definitions if any exist to prevent redefinition errors
+              twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
+              twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
+
               if "SPM_TWAM_CON" not in twam_content[:1500]:
                   twam_content = twam_fixes + twam_content
 
