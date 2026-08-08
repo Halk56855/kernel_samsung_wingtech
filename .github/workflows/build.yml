@@ -26,7 +26,6 @@ jobs:
             rm -rf temp_ksu
           fi
           
-          # تأكد من ربط KernelSU بملفات drivers الرئيسية
           if ! grep -q "kernelsu" drivers/Kconfig; then
             echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           fi
@@ -69,7 +68,6 @@ jobs:
       - name: Merge custom configs
         run: |
           cat arch/arm64/configs/rsuntk-config >> arch/arm64/configs/rsuntk-a04_defconfig
-          # تفعيل خيار Manual Hook الخاص بنواتك Non-GKI
           echo "CONFIG_KSU=y" >> arch/arm64/configs/rsuntk-a04_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/rsuntk-a04_defconfig
 
@@ -79,7 +77,6 @@ jobs:
           import os
           import textwrap
 
-          # 0. Clean carriage returns across all source, header, Kconfig, and Makefile files
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".c", ".h", "Kconfig", "Makefile")) or file == "Kconfig" or file.endswith(".Kconfig"):
@@ -151,8 +148,7 @@ jobs:
               #endif
               extern unsigned int spm_read(unsigned int offset);
               """)
-              if "PWR_STATUS" not in content[:1000]:
-                  content = header_fix + content
+              content = header_fix + content
               with open(mtk_spm_c, "w") as f:
                   f.write(content)
 
@@ -180,8 +176,7 @@ jobs:
               """)
               twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
               twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
-              if "SPM_TWAM_CON" not in twam_content[:1500]:
-                  twam_content = twam_fixes + twam_content
+              twam_content = twam_fixes + twam_content
               with open(mtk_twam_c, "w") as f:
                   f.write(twam_content)
 
@@ -229,8 +224,7 @@ jobs:
               #define SPM_TWAM_IDLE_SEL 0x0C0
               #endif
               """)
-              if "WAKE_SRC_R12_KP_IRQ_B" not in irq_content[:1500]:
-                  irq_content = irq_fixes + irq_content
+              irq_content = irq_fixes + irq_content
               with open(mtk_irq_c, "w") as f:
                   f.write(irq_content)
 
@@ -250,8 +244,7 @@ jobs:
               #define R0_SC_PHYPLL2_MODE_SW_PCM (1U << 15)
               #endif
               """)
-              if "SPM_POWER_ON_VAL0" not in dram_content[:1500]:
-                  dram_content = dram_fixes + dram_content
+              dram_content = dram_fixes + dram_content
               with open(mtk_dram_c, "w") as f:
                   f.write(dram_content)
           '
