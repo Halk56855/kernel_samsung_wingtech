@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech (a04)
+name: Build Kernel Samsung Wingtech v2 (a04)
 
 on:
   workflow_dispatch:
