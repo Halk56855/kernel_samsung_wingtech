@@ -247,6 +247,43 @@ jobs:
               dram_content = dram_fixes + dram_content
               with open(mtk_dram_c, "w") as f:
                   f.write(dram_content)
+
+          mtk_internal_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_internal.c"
+          if os.path.exists(mtk_internal_c):
+              with open(mtk_internal_c, "r") as f:
+                  internal_content = f.read()
+              internal_fixes = textwrap.dedent("""
+              #ifndef SRC_REQ_STA
+              #define SRC_REQ_STA 0x400
+              #endif
+              #ifndef SPM_SW_DEBUG
+              #define SPM_SW_DEBUG 0x200
+              #endif
+              #ifndef WDT_LATCH_SPARE0_FIX
+              #define WDT_LATCH_SPARE0_FIX 0x204
+              #endif
+              #ifndef SPM_BSI_D2_SR
+              #define SPM_BSI_D2_SR 0x208
+              #endif
+              #ifndef SPM_IRQ_STA
+              #define SPM_IRQ_STA 0x0B8
+              #endif
+              #ifndef WAKE_SRC_R12_PCM_TIMER
+              #define WAKE_SRC_R12_PCM_TIMER (1U << 8)
+              #endif
+              #ifndef SPM_PASR_DPD_0
+              #define SPM_PASR_DPD_0 0x300
+              #endif
+              #ifndef SPM_SW_FLAG
+              #define SPM_SW_FLAG 0x600
+              #endif
+              #ifndef SPM_SW_RSV_2
+              #define SPM_SW_RSV_2 0x608
+              #endif
+              """)
+              internal_content = internal_fixes + internal_content
+              with open(mtk_internal_c, "w") as f:
+                  f.write(internal_content)
           '
 
       - name: Build kernel
