@@ -10,8 +10,6 @@ jobs:
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Clean repository
       run: |
@@ -19,18 +17,30 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate KittiSU as Git Submodule (Clean Method)
+    - name: Integrate KittiSU Cleanly & Wire Kconfig/Makefile
       run: |
-        # إزالة أي مخلفات سابقة والتأكد من نظافة المسار
-        git rm -f drivers/kernelsu || true
-        rm -rf drivers/kernelsu .git/modules/drivers/kernelsu
-        mkdir -p drivers
+        # إزالة أي مخلفات سابقة لضمان نظافة البناء
+        rm -rf drivers/kernelsu Kitti_repo
+        
+        # استنساخ مستودع KittiSU
+        git clone -b dev https://github.com/terebiko/KittiSU.git Kitti_repo
 
-        # إضافة KittiSU بالطريقة الرسمية كـ Submodule لتجاوز شرط Kbuild
-        git submodule add -b dev https://github.com/terebiko/KittiSU.git drivers/kernelsu
-        git submodule update --init --recursive
+        # إنشاء مجلد drivers/kernelsu ونقل ملفات الكيرنل وتهيئة مستودع محلي لتجاوز فحص Kbuild
+        mkdir -p drivers/kernelsu
+        cp -r Kitti_repo/kernel/* drivers/kernelsu/
+        
+        cd drivers/kernelsu
+        git init
+        git config user.name "Builder"
+        git config user.email "builder@action.local"
+        git add .
+        git commit -m "KittiSU integration" || true
+        cd ../..
 
-        # ربط KSU بملفات الـ Makefile والـ Kconfig الأساسية فقط إذا لم تكن موجودة
+        # تنظيف مجلد المستودع المؤقت
+        rm -rf Kitti_repo
+
+        # ربط KSU بملف الـ Makefile في الـ drivers
         python3 -c '
         with open("drivers/Makefile", "r") as f:
             content = f.read()
@@ -40,6 +50,7 @@ jobs:
                 f.write(content)
         '
 
+        # ربط KSU بملف الـ Kconfig في الـ drivers
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
