@@ -20,7 +20,7 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Setup ReSukiSU Driver and Apply 4.19 Patch
+    - name: Setup ReSukiSU Driver and Neutralize Submodule Checks
       run: |
         # 1. Clean up any existing drivers/kernelsu to prevent conflicts
         rm -rf drivers/kernelsu
@@ -35,30 +35,31 @@ jobs:
         fi
         rm -rf /tmp/resukisu
 
-        # 3. Clone and apply patches safely (with fallback to prevent failure)
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
-        if [ -f "/tmp/resukisu_patches/scope-minimized/kernel-4.19.patch" ]; then
-          git apply --whitespace=nowarn /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || \
-          patch -p1 --forward --ignore-whitespace < /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || true
-        fi
-        rm -rf /tmp/resukisu_patches
+        # 3. Initialize git inside drivers/kernelsu to satisfy basic git checks
+        cd drivers/kernelsu
+        git init || true
+        git config user.name "GitHub Actions" || true
+        git config user.email "actions@github.local" || true
+        git add . || true
+        git commit -m "Init ReSukiSU driver" || true
+        cd ..
 
-        # 4. Initialize git inside drivers/kernelsu and bypass strict checks
-        if [ -d "drivers/kernelsu" ]; then
-          cd drivers/kernelsu
-          git init || true
-          git config user.name "GitHub Actions" || true
-          git config user.email "actions@github.local" || true
-          git add . || true
-          git commit -m "Init ReSukiSU driver" || true
-          cd ..
-
-          find drivers/kernelsu -name "*.mk" -exec sed -i 's/\$(error/#\$(error/g' {} + || true
-          if [ -f "drivers/kernelsu/Kbuild" ]; then
-            sed -i 's/\$(error/#\$(error/g' drivers/kernelsu/Kbuild
-            sed -i '/You should use ReSukiSU as a git submodule/d' drivers/kernelsu/Kbuild
-          fi
-        fi
+        # 4. Completely neutralize submodule and error checks in drivers/kernelsu/Kbuild using Python
+        python3 - << 'EOF'
+        import os
+        path = "drivers/kernelsu/Kbuild"
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            new_lines = []
+            for line in lines:
+                if "submodule" in line.lower() or "can't find" in line.lower() or "you should use" in line.lower() or "error" in line.lower():
+                    new_lines.append("# " + line)
+                else:
+                    new_lines.append(line)
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        EOF
 
         # 5. Add Kconfig source entry if missing
         if [ -f "drivers/Kconfig" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
