@@ -14,7 +14,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup KernelSU for Non-GKI (Manual Hook)
+      - name: Setup KernelSU and Apply Official 4.19 Patch
         run: |
           if [ ! -d "drivers/kernelsu" ]; then
             git clone https://github.com/rsuntk/KernelSU.git temp_ksu
@@ -26,12 +26,14 @@ jobs:
             rm -rf temp_ksu
           fi
           
-          if ! grep -q "kernelsu" drivers/Kconfig; then
-            echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          git clone https://github.com/rksuorg/kernel_patches.git temp_patches
+          
+          if [ -f "temp_patches/manual_hook/kernel-4.19_5.4-patch" ]; then
+            echo "Applying official kernel-4.19 manual hook patch..."
+            git apply temp_patches/manual_hook/kernel-4.19_5.4-patch || git apply --reject --whitespace=fix temp_patches/manual_hook/kernel-4.19_5.4-patch || true
           fi
-          if ! grep -q "kernelsu" drivers/Makefile; then
-            echo 'obj-y += kernelsu/' >> drivers/Makefile
-          fi
+          
+          rm -rf temp_patches
 
       - name: Install dependencies
         run: |
@@ -71,262 +73,44 @@ jobs:
           echo "CONFIG_KSU=y" >> arch/arm64/configs/rsuntk-a04_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/rsuntk-a04_defconfig
 
-      - name: Fix Source and Kconfig Issues Automatically
+      - name: Fix Host Tools and MTK SPM Header Issues for Kernel 4.19
         run: |
-          python3 -c '
+          python3 - << 'EOF'
           import os
-          import re
-          import textwrap
 
-          for root, dirs, files in os.walk("."):
-              for file in files:
-                  if file.endswith((".c", ".h", "Kconfig", "Makefile")) or file == "Kconfig" or file.endswith(".Kconfig"):
-                      path = os.path.join(root, file)
-                      try:
-                          with open(path, "rb") as f:
-                              content = f.read()
-                          cleaned = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-                          with open(path, "wb") as f:
-                              f.write(cleaned)
-                      except Exception:
-                          pass
-
-          # Global fix for all local mtk_spm headers using angled brackets instead of quotes
-          spm_dir = "drivers/misc/mediatek/base/power/spm/mt6765"
-          if os.path.exists(spm_dir):
-              for fname in os.listdir(spm_dir):
-                  if fname.endswith((".c", ".h")):
-                      fpath = os.path.join(spm_dir, fname)
-                      with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                          c = f.read()
-                      c = re.sub(r"#include\s*<\s*(mtk_spm[^>]+)\s*>", r"#include \"\1\"", c)
-                      with open(fpath, "w", encoding="utf-8") as f:
-                          f.write(c)
-
-          hx_kconfig = "drivers/input/touchscreen/mediatek/hxchipset_hx83108x/Kconfig"
-          if os.path.exists(hx_kconfig):
-              with open(hx_kconfig, "r") as f:
-                  lines = f.readlines()
-              new_lines = [line[1:] if line.startswith("+") else line for line in lines]
-              with open(hx_kconfig, "w") as f:
-                  f.writelines(new_lines)
-
-          qos_mk = "drivers/misc/mediatek/base/power/qos/Makefile"
-          if os.path.exists(qos_mk):
-              with open(qos_mk, "r") as f:
-                  lines = f.readlines()
-              new_lines = []
-              else_count = 0
-              in_conditional = False
-              for line in lines:
-                  stripped = line.strip()
-                  if stripped.startswith("ifeq") or stripped.startswith("ifneq") or stripped.startswith("ifdef") or stripped.startswith("ifndef"):
-                      in_conditional = True
-                      else_count = 0
-                      new_lines.append(line)
-                  elif stripped.startswith("endif"):
-                      in_conditional = False
-                      else_count = 0
-                      new_lines.append(line)
-                  elif stripped.startswith("else"):
-                      if in_conditional:
-                          if else_count == 0:
-                              new_lines.append("else\n")
-                              else_count += 1
-                          else:
-                              pass
-                      else:
-                          new_lines.append(line)
-                  else:
-                      new_lines.append(line)
-              with open(qos_mk, "w") as f:
-                  f.writelines(new_lines)
-
-          mtk_spm_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm.c"
-          if os.path.exists(mtk_spm_c):
-              with open(mtk_spm_c, "r") as f:
+          # 1. Fix Host tools conf.c string issues
+          conf_c = "scripts/kconfig/conf.c"
+          if os.path.exists(conf_c):
+              with open(conf_c, "r", encoding="utf-8", errors="ignore") as f:
                   content = f.read()
-              header_fix = textwrap.dedent("""
-              #ifndef PWR_STATUS
-              #define PWR_STATUS 0x000
-              #endif
-              #ifndef MD1_PWR_CON
-              #define MD1_PWR_CON 0x004
-              #endif
-              #ifndef PCM_REG13_DATA
-              #define PCM_REG13_DATA 0x008
-              #endif
-              #ifndef SPARE_ACK_MASK
-              #define SPARE_ACK_MASK 0x00C
-              #endif
-              extern unsigned int spm_read(unsigned int offset);
-              """)
-              content = header_fix + content
-              with open(mtk_spm_c, "w") as f:
+              content = content.replace('"%s"', '"config"')
+              content = content.replace('"%s" or "all.config"', '"config"')
+              with open(conf_c, "w", encoding="utf-8") as f:
                   f.write(content)
 
-          mtk_twam_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_twam.c"
-          if os.path.exists(mtk_twam_c):
-              with open(mtk_twam_c, "r") as f:
-                  twam_content = f.read()
-              twam_fixes = textwrap.dedent("""
-              #ifndef SPM_TWAM_CON
-              #define SPM_TWAM_CON 0x0A0
-              #endif
-              #ifndef TWAM_ENABLE_LSB
-              #define TWAM_ENABLE_LSB (1U << 0)
-              #endif
-              #ifndef TWAM_SPEED_MODE_ENABLE_LSB
-              #define TWAM_SPEED_MODE_ENABLE_LSB (1U << 1)
-              #endif
-              #ifndef SPM_IRQ_MASK
-              #define SPM_IRQ_MASK 0x0B4
-              #endif
-              #ifndef SPM_IRQ_STA
-              #define SPM_IRQ_STA 0x0B8
-              #endif
-              """)
-              twam_content = twam_content.replace("#define ISRM_TWAM (1U << 10)", "")
-              twam_content = twam_content.replace("#define ISRC_TWAM (1U << 10)", "")
-              twam_content = twam_fixes + twam_content
-              with open(mtk_twam_c, "w") as f:
-                  f.write(twam_content)
-
-          mtk_irq_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_irq.c"
-          if os.path.exists(mtk_irq_c):
-              with open(mtk_irq_c, "r") as f:
-                  irq_content = f.read()
-              irq_fixes = textwrap.dedent("""
-              #ifndef WAKE_SRC_R12_KP_IRQ_B
-              #define WAKE_SRC_R12_KP_IRQ_B (1U << 0)
-              #endif
-              #ifndef WAKE_SRC_R12_MD1_WDT_B
-              #define WAKE_SRC_R12_MD1_WDT_B (1U << 1)
-              #endif
-              #ifndef WAKE_SRC_R12_SYS_CIRQ_IRQ_B
-              #define WAKE_SRC_R12_SYS_CIRQ_IRQ_B (1U << 2)
-              #endif
-              #ifndef SPM_SW_RSV_0
-              #define SPM_SW_RSV_0 0x010
-              #endif
-              #ifndef SPM_IRQ_STA
-              #define SPM_IRQ_STA 0x0B8
-              #endif
-              #ifndef SPM_TWAM_LAST_STA0
-              #define SPM_TWAM_LAST_STA0 0x0A4
-              #endif
-              #ifndef SPM_TWAM_LAST_STA1
-              #define SPM_TWAM_LAST_STA1 0x0A8
-              #endif
-              #ifndef SPM_TWAM_LAST_STA2
-              #define SPM_TWAM_LAST_STA2 0x0AC
-              #endif
-              #ifndef SPM_TWAM_LAST_STA3
-              #define SPM_TWAM_LAST_STA3 0x0B0
-              #endif
-              #ifndef SPM_TWAM_CON
-              #define SPM_TWAM_CON 0x0A0
-              #endif
-              #ifndef SPM_TWAM_IDLE_SEL
-              #define SPM_TWAM_IDLE_SEL 0x0C0
-              #endif
-              """)
-              irq_content = irq_fixes + irq_content
-              with open(mtk_irq_c, "w") as f:
-                  f.write(irq_content)
-
-          mtk_dram_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_dram.c"
-          if os.path.exists(mtk_dram_c):
-              with open(mtk_dram_c, "r") as f:
-                  dram_content = f.read()
-              dram_fixes = textwrap.dedent("""
-              #ifndef SPM_POWER_ON_VAL0
-              #define SPM_POWER_ON_VAL0 0x100
-              #endif
-              #ifndef R0_SC_PHYPLL_MODE_SW_PCM
-              #define R0_SC_PHYPLL_MODE_SW_PCM (1U << 14)
-              #endif
-              #ifndef R0_SC_PHYPLL2_MODE_SW_PCM
-              #define R0_SC_PHYPLL2_MODE_SW_PCM (1U << 15)
-              #endif
-              """)
-              dram_content = dram_fixes + dram_content
-              with open(mtk_dram_c, "w") as f:
-                  f.write(dram_content)
-
-          mtk_internal_c = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_internal.c"
-          if os.path.exists(mtk_internal_c):
-              with open(mtk_internal_c, "r") as f:
-                  internal_content = f.read()
-              internal_fixes = textwrap.dedent("""
-              #ifndef SRC_REQ_STA
-              #define SRC_REQ_STA 0x400
-              #endif
-              #ifndef SPM_SW_DEBUG
-              #define SPM_SW_DEBUG 0x200
-              #endif
-              #ifndef WDT_LATCH_SPARE0_FIX
-              #define WDT_LATCH_SPARE0_FIX 0x204
-              #endif
-              #ifndef SPM_BSI_D2_SR
-              #define SPM_BSI_D2_SR 0x208
-              #endif
-              #ifndef SPM_IRQ_STA
-              #define SPM_IRQ_STA 0x0B8
-              #endif
-              #ifndef WAKE_SRC_R12_PCM_TIMER
-              #define WAKE_SRC_R12_PCM_TIMER (1U << 8)
-              #endif
-              #ifndef SPM_PASR_DPD_0
-              #define SPM_PASR_DPD_0 0x300
-              #endif
-              #ifndef SPM_SW_FLAG
-              #define SPM_SW_FLAG 0x600
-              #endif
-              #ifndef SPM_SW_RSV_2
-              #define SPM_SW_RSV_2 0x608
-              #endif
-              #ifndef SPM_WAKEUP_EXT_STA
-              #define SPM_WAKEUP_EXT_STA 0x20C
-              #endif
-              #ifndef SPM_BSI_D0_SR
-              #define SPM_BSI_D0_SR 0x304
-              #endif
-              #ifndef SPM_BSI_D1_SR
-              #define SPM_BSI_D1_SR 0x308
-              #endif
-              #ifndef PCM_REG13_DATA
-              #define PCM_REG13_DATA 0x008
-              #endif
-              #ifndef SUBSYS_IDLE_STA
-              #define SUBSYS_IDLE_STA 0x500
-              #endif
-              #ifndef SPM_SRC_REQ
-              #define SPM_SRC_REQ 0x404
-              #endif
-              #ifndef SPM_FLAG1_BIG_BUCK_OFF_ENABLE
-              #define SPM_FLAG1_BIG_BUCK_OFF_ENABLE (1U << 0)
-              #endif
-              #ifndef SPM_FLAG1_BIG_BUCK_ON_ENABLE
-              #define SPM_FLAG1_BIG_BUCK_ON_ENABLE (1U << 1)
-              #endif
-              #ifndef PCM_REG_DATA_INI
-              #define PCM_REG_DATA_INI 0x014
-              #endif
-              #ifndef SPM_SW_RSV_0
-              #define SPM_SW_RSV_0 0x010
-              #endif
-              #ifndef PCM_REG12_EXT_DATA
-              #define PCM_REG12_EXT_DATA 0x018
-              #endif
-              #ifndef SPM_WAKEUP_STA
-              #define SPM_WAKEUP_STA 0x0B4
-              #endif
-              """)
-              internal_content = internal_fixes + internal_content
-              with open(mtk_internal_c, "w") as f:
-                  f.write(internal_content)
-          '
+          # 2. Fix MTK SPM internal header escaped quotes and missing types automatically
+          internal_h = "drivers/misc/mediatek/base/power/spm/mt6765/mtk_spm_internal.h"
+          if os.path.exists(internal_h):
+              with open(internal_h, "r", encoding="utf-8", errors="ignore") as f:
+                  h_content = f.read()
+              
+              # Fix escaped quotes in includes
+              h_content = h_content.replace('\\"', '"')
+              
+              # Ensure twam_handler_t and struct twam_cfg are defined
+              if "twam_handler_t" not in h_content or "struct twam_cfg" not in h_content:
+                  header_fix = """
+                  #ifndef __TWAM_HANDLER_T_DEFINED
+                  #define __TWAM_HANDLER_T_DEFINED
+                  struct twam_cfg;
+                  typedef void (*twam_handler_t)(void);
+                  #endif
+                  """
+                  h_content = header_fix + h_content
+                  
+              with open(internal_h, "w", encoding="utf-8") as f:
+                  f.write(h_content)
+          EOF
 
       - name: Build kernel
         run: |
@@ -336,6 +120,8 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
             rsuntk-a04_defconfig
           
           grep KSU .config
@@ -345,8 +131,10 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CC=clang \
-            KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration" \
-            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration"
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
+            KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=undeclared-identifier -Wno-error=visibility" \
+            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang HOSTCC=gcc HOSTCXX=g++ KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=undeclared-identifier -Wno-error=visibility"
 
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
