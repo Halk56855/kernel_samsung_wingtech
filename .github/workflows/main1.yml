@@ -21,6 +21,13 @@ jobs:
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
         mkdir -p drivers/kernelsu
         cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        cd drivers/kernelsu
+        git init
+        git config user.name "Builder"
+        git config user.email "builder@kernel.local"
+        git add .
+        git commit -m "Initial commit"
+        cd ../..
         rm -rf /tmp/resukisu
         if ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
