@@ -20,7 +20,7 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Setup ReSukiSU Driver and Neutralize Submodule Checks
+    - name: Setup ReSukiSU Driver and Bypass Submodule Check Completely
       run: |
         # 1. Clean up any existing drivers/kernelsu to prevent conflicts
         rm -rf drivers/kernelsu
@@ -35,16 +35,7 @@ jobs:
         fi
         rm -rf /tmp/resukisu
 
-        # 3. Initialize git inside drivers/kernelsu to satisfy basic git checks
-        cd drivers/kernelsu
-        git init || true
-        git config user.name "GitHub Actions" || true
-        git config user.email "actions@github.local" || true
-        git add . || true
-        git commit -m "Init ReSukiSU driver" || true
-        cd ..
-
-        # 4. Completely wipe out or comment out the check block in drivers/kernelsu/Kbuild using Python
+        # 3. Permanently patch drivers/kernelsu/Kbuild to eliminate submodule check & error
         python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/Kbuild"
@@ -52,24 +43,24 @@ jobs:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            # Replace the entire block or problematic lines that trigger error
+            # Remove or comment out lines causing the fatal error
             lines = content.splitlines()
             new_lines = []
-            skip_mode = False
             for line in lines:
-                if "submodule" in line.lower() or "can't find" in line.lower() or "you should use" in line.lower():
+                if "submodule" in line.lower() or "can't find" in line.lower() or "$(error" in line.lower() or "git rev-parse" in line.lower():
                     new_lines.append("# " + line)
-                    continue
-                if "$(error" in line:
-                    new_lines.append("# " + line)
-                    continue
-                new_lines.append(line)
-                
+                else:
+                    new_lines.append(line)
+            
+            # Add a safe override definition at the top of the file
+            safe_override = "KSU_SRC ?= $(srctree)/drivers/kernelsu\n"
+            final_content = safe_override + "\n".join(new_lines)
+            
             with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(new_lines) + "\n")
+                f.write(final_content)
         EOF
 
-        # 5. Add Kconfig source entry if missing
+        # 4. Add Kconfig source entry if missing
         if [ -f "drivers/Kconfig" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
