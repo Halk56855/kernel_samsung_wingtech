@@ -10,6 +10,8 @@ jobs:
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Fix Kconfig line endings and characters
       run: |
@@ -21,14 +23,20 @@ jobs:
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
         mkdir -p drivers/kernelsu
         cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        rm -rf /tmp/resukisu
+        
         cd drivers/kernelsu
         git init
-        git config user.name "Builder"
-        git config user.email "builder@kernel.local"
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.local"
         git add .
-        git commit -m "Initial commit"
-        cd ../..
-        rm -rf /tmp/resukisu
+        git commit -m "ReSukiSU Kernel Files"
+        cd ..
+        
+        git submodule add ./drivers/kernelsu drivers/kernelsu || true
+        git add .gitmodules drivers/kernelsu || true
+        git commit -m "Add ReSukiSU submodule" || true
+
         if ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
