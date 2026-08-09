@@ -16,13 +16,15 @@ jobs:
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
 
-    - name: Integrate SukiSU-Ultra & Proper Wiring
+    - name: Integrate KernelSU-Legacy & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Legacy/KernelSU-Legacy/v1.1.1/kernel/setup.sh" | bash -
 
         if [ ! -d "drivers/kernelsu" ]; then
-          if [ -d "SukiSU-Ultra/kernel" ]; then
-            ln -sf ../SukiSU-Ultra/kernel drivers/kernelsu
+          if [ -d "KernelSU-Legacy/kernel" ]; then
+            ln -sf ../KernelSU-Legacy/kernel drivers/kernelsu
+          elif [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
           elif [ -d "kernel" ]; then
             mv kernel drivers/kernelsu
           fi
@@ -127,10 +129,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-SukiSU-Ultra-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-KernelSU-Legacy-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-SukiSU-Ultra-Flashable-Zip
-        path: A04-SukiSU-Ultra-AnyKernel3.zip
+        name: A04-KernelSU-Legacy-Flashable-Zip
+        path: A04-KernelSU-Legacy-AnyKernel3.zip
