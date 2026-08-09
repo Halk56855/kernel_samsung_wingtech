@@ -15,7 +15,7 @@ jobs:
       run: |
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-        # التأكد من وجود الارتباط الصحيح لمجلد drivers/kernelsu
+        # التأكد من وجود مجلد drivers/kernelsu
         if [ ! -d "drivers/kernelsu" ]; then
           if [ -d "KernelSU-Next/kernel" ]; then
             ln -sf ../KernelSU-Next/kernel drivers/kernelsu
@@ -24,15 +24,29 @@ jobs:
           fi
         fi
 
-        # إدراج مسار KernelSU في ملف Makefile الخاص بالدرايفرات
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
-        fi
-        
-        # ربط ملف Kconfig الخاص بـ KernelSU بملف Kconfig الرئيسي للـ drivers لكي يتعرف عليه النظام ولا يحذفه
-        if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
+        # إضافة مسار الكود إلى drivers/Makefile بطريقة آمنة
+        python3 -c '
+        with open("drivers/Makefile", "r") as f:
+            content = f.read()
+        if "kernelsu" not in content:
+            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
+            with open("drivers/Makefile", "w") as f:
+                f.write(content)
+        '
+
+        # إدراج Kconfig الخاص بـ KernelSU قبل الـ endmenu الأخير لكي يعترف به النظام تماماً ولا يحذفه
+        python3 -c '
+        with open("drivers/Kconfig", "r") as f:
+            content = f.read()
+        if "drivers/kernelsu/Kconfig" not in content:
+            idx = content.rfind("endmenu")
+            if idx != -1:
+                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
+            else:
+                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
+            with open("drivers/Kconfig", "w") as f:
+                f.write(content)
+        '
 
     - name: Install dependencies
       run: |
@@ -81,7 +95,7 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تعطيل IKHEADERS وتفعيل خيارات KSU و Kprobes بدون مسافات فارغة قد تفسد الملف
+        # ضبط إعدادات النواة وتفعيل خيارات KSU و Kprobes
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         
         cat << 'EOT' >> $(pwd)/out/.config
@@ -93,10 +107,10 @@ jobs:
         CONFIG_KSU_KPROBE_HOOKS=y
         EOT
 
-        # تحديث وتثبيت الإعدادات رسمياً لكي يعتمد نظام النواة متغيرات KSU دون حذفها
+        # تثبيت واعتماد المتغيرات رسمياً (الآن سيتعافى الـ Kconfig ويتعرف عليها دون حذفها)
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # البناء بالتوازي، وعند أي خطأ يتم إعادة البناء أحادي النواة لتتبع المشكلة بدقة
+        # تنفيذ عملية البناء بالتوازي أو بالتوالي عند الأخطاء
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
