@@ -20,35 +20,46 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Setup ReSukiSU Driver and Apply Patch
+    - name: Setup ReSukiSU Driver and Apply 4.19 Patch
       run: |
-        rm -rf drivers/kernelsu
+        # 1. Clone ReSukiSU patches first
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
+
+        # 2. Clone ReSukiSU driver core and place it in drivers/kernelsu
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
         mkdir -p drivers/kernelsu
-        cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        if [ -d "/tmp/resukisu/kernel" ]; then
+          cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        else
+          cp -r /tmp/resukisu/* drivers/kernelsu/
+        fi
         rm -rf /tmp/resukisu
 
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
+        # 3. Apply the 4.19 kernel patch safely
         if [ -f "/tmp/resukisu_patches/scope-minimized/kernel-4.19.patch" ]; then
-          patch -p1 --forward < /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || \
-          git apply --whitespace=nowarn /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || true
+          git apply --whitespace=nowarn /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || \
+          patch -p1 --forward --ignore-whitespace < /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || true
         fi
         rm -rf /tmp/resukisu_patches
 
-        cd drivers/kernelsu
-        git init
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.local"
-        git add .
-        git commit -m "Init ReSukiSU"
-        cd ..
+        # 4. Initialize git inside drivers/kernelsu and bypass strict checks
+        if [ -d "drivers/kernelsu" ]; then
+          cd drivers/kernelsu
+          git init || true
+          git config user.name "GitHub Actions" || true
+          git config user.email "actions@github.local" || true
+          git add . || true
+          git commit -m "Init ReSukiSU driver" || true
+          cd ..
 
-        find drivers/kernelsu -name "*.mk" -exec sed -i 's/\$(error/#\$(error/g' {} +
-        if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i 's/\$(error/#\$(error/g' drivers/kernelsu/Kbuild
-          sed -i '/You should use ReSukiSU as a git submodule/d' drivers/kernelsu/Kbuild
+          find drivers/kernelsu -name "*.mk" -exec sed -i 's/\$(error/#\$(error/g' {} + || true
+          if [ -f "drivers/kernelsu/Kbuild" ]; then
+            sed -i 's/\$(error/#\$(error/g' drivers/kernelsu/Kbuild
+            sed -i '/You should use ReSukiSU as a git submodule/d' drivers/kernelsu/Kbuild
+          fi
         fi
 
+        # 5. Add Kconfig source entry if missing
         if [ -f "drivers/Kconfig" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
