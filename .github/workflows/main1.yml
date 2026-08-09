@@ -16,13 +16,13 @@ jobs:
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
 
-    - name: Integrate ApexSU & Proper Wiring
+    - name: Integrate ApkeSU & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/qrjhamron/ApexSU/main/kernel/setup.sh" | bash -s main
+        curl -LSs "https://raw.githubusercontent.com/fixz232/ApkeSU/main/kernel/setup.sh" | bash -s main
 
         if [ ! -d "drivers/kernelsu" ]; then
-          if [ -d "ApexSU/kernel" ]; then
-            ln -sf ../ApexSU/kernel drivers/kernelsu
+          if [ -d "ApkeSU/kernel" ]; then
+            ln -sf ../ApkeSU/kernel drivers/kernelsu
           elif [ -d "kernel" ]; then
             mv kernel drivers/kernelsu
           fi
@@ -127,10 +127,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ApexSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ApkeSU-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ApexSU-Flashable-Zip
-        path: A04-ApexSU-AnyKernel3.zip
+        name: A04-ApkeSU-Flashable-Zip
+        path: A04-ApkeSU-AnyKernel3.zip
