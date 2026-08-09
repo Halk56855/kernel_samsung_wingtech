@@ -16,7 +16,6 @@ jobs:
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
 
-        # تحييد استدعاء ksu_handle_devpts تلقائياً ليتوافق مع KernelSU-Next Legacy دون تعديل الملفات الأصلية يدوياً
         python3 -c '
         path = "drivers/tty/pty.c"
         try:
@@ -41,7 +40,6 @@ jobs:
       run: |
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-        # التأكد من وجود مجلد drivers/kernelsu
         if [ ! -d "drivers/kernelsu" ]; then
           if [ -d "KernelSU-Next/kernel" ]; then
             ln -sf ../KernelSU-Next/kernel drivers/kernelsu
@@ -50,7 +48,6 @@ jobs:
           fi
         fi
 
-        # إضافة مسار الكود إلى drivers/Makefile بطريقة آمنة
         python3 -c '
         with open("drivers/Makefile", "r") as f:
             content = f.read()
@@ -60,7 +57,6 @@ jobs:
                 f.write(content)
         '
 
-        # إدراج Kconfig الخاص بـ KernelSU قبل الـ endmenu الأخير
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
@@ -121,7 +117,6 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
-        # ضبط إعدادات النواة وتفعيل خيارات KSU و Kprobes
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         
         cat << 'EOT' >> $(pwd)/out/.config
@@ -133,10 +128,8 @@ jobs:
         CONFIG_KSU_KPROBE_HOOKS=y
         EOT
 
-        # تحديث واعتماد المتغيرات رسمياً
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # تنفيذ عملية البناء بالتوازي أو بالتوالي عند الأخطاء
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
@@ -147,20 +140,17 @@ jobs:
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
 
-    - name: Copy Image to source tree
+    - name: Package with AnyKernel3-a04
       run: |
-        cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
-
-    - name: Archive output
-      run: |
-        cd out/arch/arm64/boot/
-        zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
+        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: built-kernel
-        path: |
-          out/arch/arm64/boot/Image
-          out/arch/arm64/boot/kernel.zip
-          .config
+        name: A04-KernelSU-Next-Flashable-Zip
+        path: A04-KernelSU-Next-AnyKernel3.zip
