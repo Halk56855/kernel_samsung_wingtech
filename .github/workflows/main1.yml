@@ -20,7 +20,7 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Setup ReSukiSU Driver
+    - name: Setup ReSukiSU Driver and Apply Patch
       run: |
         rm -rf drivers/kernelsu
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
@@ -28,8 +28,6 @@ jobs:
         cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
         rm -rf /tmp/resukisu
 
-    - name: Apply ReSukiSU 4.19 Manual Hook Patch
-      run: |
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
         if [ -f "/tmp/resukisu_patches/scope-minimized/kernel-4.19.patch" ]; then
           patch -p1 --forward < /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || \
@@ -37,8 +35,6 @@ jobs:
         fi
         rm -rf /tmp/resukisu_patches
 
-    - name: Bypass ReSukiSU Checks & Setup Git
-      run: |
         cd drivers/kernelsu
         git init
         git config user.name "GitHub Actions"
