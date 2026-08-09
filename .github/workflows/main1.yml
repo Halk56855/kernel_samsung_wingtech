@@ -44,21 +44,29 @@ jobs:
         git commit -m "Init ReSukiSU driver" || true
         cd ..
 
-        # 4. Completely neutralize submodule and error checks in drivers/kernelsu/Kbuild using Python
+        # 4. Completely wipe out or comment out the check block in drivers/kernelsu/Kbuild using Python
         python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/Kbuild"
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+                content = f.read()
+            
+            # Replace the entire block or problematic lines that trigger error
+            lines = content.splitlines()
             new_lines = []
+            skip_mode = False
             for line in lines:
-                if "submodule" in line.lower() or "can't find" in line.lower() or "you should use" in line.lower() or "error" in line.lower():
+                if "submodule" in line.lower() or "can't find" in line.lower() or "you should use" in line.lower():
                     new_lines.append("# " + line)
-                else:
-                    new_lines.append(line)
+                    continue
+                if "$(error" in line:
+                    new_lines.append("# " + line)
+                    continue
+                new_lines.append(line)
+                
             with open(path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
+                f.write("\n".join(new_lines) + "\n")
         EOF
 
         # 5. Add Kconfig source entry if missing
