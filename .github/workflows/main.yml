@@ -11,6 +11,11 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
+    - name: Clean repository and reset core files
+      run: |
+        git checkout drivers/tty/pty.c || true
+        git reset --hard || true
+
     - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
       run: |
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
@@ -34,7 +39,7 @@ jobs:
                 f.write(content)
         '
 
-        # إدراج Kconfig الخاص بـ KernelSU قبل الـ endmenu الأخير لكي يعترف به النظام تماماً ولا يحذفه
+        # إدراج Kconfig الخاص بـ KernelSU قبل الendmenu الأخير
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
@@ -107,7 +112,7 @@ jobs:
         CONFIG_KSU_KPROBE_HOOKS=y
         EOT
 
-        # تثبيت واعتماد المتغيرات رسمياً (الآن سيتعافى الـ Kconfig ويتعرف عليها دون حذفها)
+        # تحديث واعتماد المتغيرات رسمياً
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         # تنفيذ عملية البناء بالتوازي أو بالتوالي عند الأخطاء
