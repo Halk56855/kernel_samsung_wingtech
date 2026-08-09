@@ -10,6 +10,8 @@ jobs:
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Setup Git Identity
       run: |
@@ -20,14 +22,29 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Setup ReSukiSU Driver
+    - name: Setup ReSukiSU Driver as Submodule
       run: |
-        cd ${{ github.workspace }}
-        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+        rm -rf drivers/kernelsu
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
+        mkdir -p drivers/kernelsu
+        cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        rm -rf /tmp/resukisu
+
+        mkdir -p .git/modules/drivers/kernelsu
+        cd drivers/kernelsu
+        git init --bare
+        cd ..
+        mv drivers/kernelsu/.git .git/modules/drivers/kernelsu
+        echo "gitdir: ../.git/modules/drivers/kernelsu" > drivers/kernelsu/.git
+
+        git config -f .gitmodules submodule.drivers/kernelsu.path drivers/kernelsu
+        git config -f .gitmodules submodule.drivers/kernelsu.url https://github.com/ReSukiSU/ReSukiSU.git
+
+        git add .gitmodules drivers/kernelsu || true
+        git commit -m "Add ReSukiSU submodule" || true
+
         if [ -f "drivers/Kconfig" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        elif [ -f "drivers/Kconfig.ext" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig.ext; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig.ext
         fi
 
     - name: Install dependencies
@@ -66,14 +83,13 @@ jobs:
 
     - name: Build kernel
       run: |
-        cd ${{ github.workspace }}
         # 1. Generate base configuration
-        make O=$(pwd)/out \
+        make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
-        # 2. Append the custom config fragment if exists
+        # 2. Append the custom config fragment using the correct filename (rsuntk-config)
         if [ -f "rsuntk-config" ]; then
           cat rsuntk-config >> $(pwd)/out/.config
         elif [ -f "arch/arm64/configs/rsuntk-config" ]; then
@@ -81,13 +97,13 @@ jobs:
         fi
 
         # 3. Update configuration dependencies
-        make O=$(pwd)/out \
+        make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           olddefconfig
 
         # 4. Compile the kernel
-        make O=$(pwd)/out \
+        make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           -j$(nproc)
