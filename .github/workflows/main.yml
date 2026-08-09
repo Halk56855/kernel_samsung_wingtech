@@ -62,10 +62,13 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تفعيل KernelSU وتعطيل IKHEADERS تلقائياً لمنع الأخطاء
+        # تفعيل KernelSU وتعطيل IKHEADERS وضمان تحديث ملفات التكوين الداخلية
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         echo "CONFIG_IKHEADERS=n" >> $(pwd)/out/.config
         echo "CONFIG_KSU=y" >> $(pwd)/out/.config
+
+        # تحديث إعدادات النواة لتوليد autoconf.h والتعرف على KernelSU رسمياً
+        make -C $(pwd) O=$(pwd)/out olddefconfig
 
         # محاولة البناء بالتوازي، وإذا حدث أي خطأ يتم إعادة البناء بـ -j1 لطباعة الخطأ بدقة
         make -C $(pwd) O=$(pwd)/out \
