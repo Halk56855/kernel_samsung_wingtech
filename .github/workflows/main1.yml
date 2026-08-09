@@ -20,6 +20,14 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
+    - name: Setup ReSukiSU Driver
+      run: |
+        rm -rf drivers/kernelsu
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
+        mkdir -p drivers/kernelsu
+        cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        rm -rf /tmp/resukisu
+
     - name: Apply ReSukiSU 4.19 Manual Hook Patch
       run: |
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
@@ -29,15 +37,8 @@ jobs:
         fi
         rm -rf /tmp/resukisu_patches
 
-    - name: Setup ReSukiSU Driver
+    - name: Bypass ReSukiSU Checks & Setup Git
       run: |
-        rm -rf drivers/kernelsu
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
-        mkdir -p drivers/kernelsu
-        cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
-        rm -rf /tmp/resukisu
-        
-        # تهيئة مستودع داخل drivers/kernelsu لتجاوز فحص الـ submodule
         cd drivers/kernelsu
         git init
         git config user.name "GitHub Actions"
@@ -46,7 +47,6 @@ jobs:
         git commit -m "Init ReSukiSU"
         cd ..
 
-        # تعطيل فحوصات الأخطاء والـ Submodule والـ Manual Hooks الصارمة في Kbuild و ملفات .mk
         find drivers/kernelsu -name "*.mk" -exec sed -i 's/\$(error/#\$(error/g' {} +
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i 's/\$(error/#\$(error/g' drivers/kernelsu/Kbuild
