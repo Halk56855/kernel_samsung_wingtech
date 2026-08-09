@@ -11,9 +11,28 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate KernelSU-Next (Legacy)
+    - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
       run: |
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+        # التأكد من وجود الارتباط الصحيح لمجلد drivers/kernelsu
+        if [ ! -d "drivers/kernelsu" ]; then
+          if [ -d "KernelSU-Next/kernel" ]; then
+            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
+          elif [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
+          fi
+        fi
+
+        # إدراج مسار KernelSU في ملف Makefile الخاص بالدرايفرات
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
+        fi
+        
+        # ربط ملف Kconfig الخاص بـ KernelSU بملف Kconfig الرئيسي للـ drivers لكي يتعرف عليه النظام ولا يحذفه
+        if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
 
     - name: Install dependencies
       run: |
@@ -62,10 +81,10 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
 
-        # فرض تفعيل KernelSU و Kprobes كـ Built-in لمنع مشاكل الـ Linking وتعطيل IKHEADERS
+        # تعطيل IKHEADERS وتفعيل خيارات KSU و Kprobes بدون مسافات فارغة قد تفسد الملف
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         
-        cat <<EOT >> $(pwd)/out/.config
+        cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KPROBES=y
@@ -74,10 +93,10 @@ jobs:
         CONFIG_KSU_KPROBE_HOOKS=y
         EOT
 
-        # تحديث إعدادات النواة لتوليد autoconf.h والاعتماد الرسمي للرموز
+        # تحديث وتثبيت الإعدادات رسمياً لكي يعتمد نظام النواة متغيرات KSU دون حذفها
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # محاولة البناء بالتوازي، وإذا حدث أي خطأ يتم إعادة البناء بـ -j1 لطباعة الخطأ بدقة
+        # البناء بالتوازي، وعند أي خطأ يتم إعادة البناء أحادي النواة لتتبع المشكلة بدقة
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
