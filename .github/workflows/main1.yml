@@ -16,17 +16,17 @@ jobs:
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
 
-    - name: Integrate KernelSU_Next & Proper Wiring
+    - name: Integrate ApkeSU (ApkeSU branch) & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/jauhitest/KernelSU_Next/legacy/kernel/setup.sh" | bash -s legacy || true
+        curl -LSs "https://raw.githubusercontent.com/fixz232/ApkeSU/ApkeSU/kernel/setup.sh" | bash -s ApkeSU || true
 
         # Remove any existing drivers/kernelsu to prevent overwrite conflicts
         rm -rf drivers/kernelsu
 
         if [ -d "kernel" ]; then
           mv kernel drivers/kernelsu
-        elif [ -d "KernelSU_Next/kernel" ]; then
-          ln -sf ../KernelSU_Next/kernel drivers/kernelsu
+        elif [ -d "ApkeSU/kernel" ]; then
+          ln -sf ../ApkeSU/kernel drivers/kernelsu
         elif [ -d "KernelSU/kernel" ]; then
           ln -sf ../KernelSU/kernel drivers/kernelsu
         fi
@@ -130,10 +130,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-KernelSU_Next-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ApkeSU-Branch-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-KernelSU_Next-Flashable-Zip
-        path: A04-KernelSU_Next-AnyKernel3.zip
+        name: A04-ApkeSU-Branch-Flashable-Zip
+        path: A04-ApkeSU-Branch-AnyKernel3.zip
