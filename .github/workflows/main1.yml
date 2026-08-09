@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech v2 (a04)
+name: Build Non-GKI Kernel Samsung Wingtech v2 (a04)
 
 on:
   workflow_dispatch:
@@ -14,21 +14,22 @@ jobs:
     - name: Clean repository
       run: |
         git checkout drivers/tty/pty.c || true
+        git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate ApkeSU (ApkeSU branch) & Proper Wiring
+    - name: Integrate Non-GKI KittiSU Safely & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/fixz232/ApkeSU/ApkeSU/kernel/setup.sh" | bash -s ApkeSU || true
+        curl -LSs "https://raw.githubusercontent.com/terebiko/KittiSU/dev/kernel/setup.sh" | bash -s dev
 
-        # Remove any existing drivers/kernelsu to prevent overwrite conflicts
+        # Remove any existing drivers/kernelsu to prevent conflicts
         rm -rf drivers/kernelsu
+        mkdir -p drivers/kernelsu
 
-        if [ -d "kernel" ]; then
-          mv kernel drivers/kernelsu
-        elif [ -d "ApkeSU/kernel" ]; then
-          ln -sf ../ApkeSU/kernel drivers/kernelsu
-        elif [ -d "KernelSU/kernel" ]; then
-          ln -sf ../KernelSU/kernel drivers/kernelsu
+        # Safely copy only the KittiSU kernel source, protecting the core kernel/ directory
+        if [ -d "KittiSU/kernel" ]; then
+          cp -r KittiSU/kernel/* drivers/kernelsu/
+        elif [ -d "kernel" ]; then
+          cp -r kernel/* drivers/kernelsu/
         fi
 
         python3 -c '
@@ -89,7 +90,7 @@ jobs:
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Build kernel
+    - name: Build Non-GKI kernel
       run: |
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
@@ -130,10 +131,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ApkeSU-Branch-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Non-GKI-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ApkeSU-Branch-Flashable-Zip
-        path: A04-ApkeSU-Branch-AnyKernel3.zip
+        name: A04-Non-GKI-KittiSU-Flashable-Zip
+        path: A04-Non-GKI-KittiSU-AnyKernel3.zip
