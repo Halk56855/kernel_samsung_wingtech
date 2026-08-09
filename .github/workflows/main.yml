@@ -11,10 +11,31 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and reset core files
+    - name: Clean repository and patch pty.c for KernelSU-Next Legacy
       run: |
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
+
+        # تحييد استدعاء ksu_handle_devpts تلقائياً ليتوافق مع KernelSU-Next Legacy دون تعديل الملفات الأصلية يدوياً
+        python3 -c '
+        path = "drivers/tty/pty.c"
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            if "ksu_handle_devpts" in content:
+                lines = content.splitlines()
+                new_lines = []
+                for line in lines:
+                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
+                        new_lines.append("/* " + line + " -- Disabled for KSU-Next Legacy */")
+                    else:
+                        new_lines.append(line)
+                with open(path, "w") as f:
+                    f.write("\n".join(new_lines) + "\n")
+                print("Successfully patched drivers/tty/pty.c")
+        except Exception as e:
+            print("Error patching pty.c:", e)
+        '
 
     - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
       run: |
@@ -39,7 +60,7 @@ jobs:
                 f.write(content)
         '
 
-        # إدراج Kconfig الخاص بـ KernelSU قبل الendmenu الأخير
+        # إدراج Kconfig الخاص بـ KernelSU قبل الـ endmenu الأخير
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
