@@ -22,8 +22,8 @@ jobs:
 
     - name: Setup ReSukiSU Driver and Apply 4.19 Patch
       run: |
-        # 1. Clone ReSukiSU patches first
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
+        # 1. Clean up any existing drivers/kernelsu to prevent conflicts
+        rm -rf drivers/kernelsu
 
         # 2. Clone ReSukiSU driver core and place it in drivers/kernelsu
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
@@ -35,7 +35,8 @@ jobs:
         fi
         rm -rf /tmp/resukisu
 
-        # 3. Apply the 4.19 kernel patch safely
+        # 3. Clone and apply patches safely (with fallback to prevent failure)
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU_Patches.git /tmp/resukisu_patches
         if [ -f "/tmp/resukisu_patches/scope-minimized/kernel-4.19.patch" ]; then
           git apply --whitespace=nowarn /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || \
           patch -p1 --forward --ignore-whitespace < /tmp/resukisu_patches/scope-minimized/kernel-4.19.patch || true
