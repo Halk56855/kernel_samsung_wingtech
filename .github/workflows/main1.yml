@@ -1,4 +1,4 @@
-name: Build Non-GKI Kernel Samsung Wingtech v2 (a04)
+name: Build Non-GKI Kernel Samsung Wingtech v2 (a04) - Legacy
 
 on:
   workflow_dispatch:
@@ -17,19 +17,21 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate Non-GKI KittiSU Safely & Proper Wiring
+    - name: Integrate KernelSU_Next (Legacy Branch) & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/terebiko/KittiSU/dev/kernel/setup.sh" | bash -s dev
-
-        # Remove any existing drivers/kernelsu to prevent conflicts
-        rm -rf drivers/kernelsu
+        # Remove any existing leftovers and create clean target directory
+        rm -rf drivers/kernelsu KernelSU_Next_repo
         mkdir -p drivers/kernelsu
 
-        # Safely copy only the KittiSU kernel source, protecting the core kernel/ directory
-        if [ -d "KittiSU/kernel" ]; then
-          cp -r KittiSU/kernel/* drivers/kernelsu/
-        elif [ -d "kernel" ]; then
-          cp -r kernel/* drivers/kernelsu/
+        # Clone KernelSU_Next legacy branch directly to guarantee file availability
+        git clone -b legacy https://github.com/jauhitest/KernelSU_Next.git KernelSU_Next_repo
+
+        # Copy kernel source files to drivers/kernelsu
+        if [ -d "KernelSU_Next_repo/kernel" ]; then
+          cp -r KernelSU_Next_repo/kernel/* drivers/kernelsu/
+        else
+          echo "Error: KernelSU_Next kernel directory not found!"
+          exit 1
         fi
 
         python3 -c '
@@ -90,7 +92,7 @@ jobs:
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Build Non-GKI kernel
+    - name: Build Non-GKI kernel with Legacy Support
       run: |
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
@@ -131,10 +133,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Non-GKI-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Non-GKI-Legacy-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Non-GKI-KittiSU-Flashable-Zip
-        path: A04-Non-GKI-KittiSU-AnyKernel3.zip
+        name: A04-Non-GKI-Legacy-Flashable-Zip
+        path: A04-Non-GKI-Legacy-AnyKernel3.zip
