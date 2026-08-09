@@ -10,6 +10,8 @@ jobs:
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Clean repository
       run: |
@@ -17,53 +19,18 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate KittiSU & Proper Wiring
+    - name: Integrate KittiSU as Git Submodule (Clean Method)
       run: |
-        # Remove any existing leftovers and create clean target directory
-        rm -rf drivers/kernelsu KittiSU_repo
-        mkdir -p drivers/kernelsu
+        # إزالة أي مخلفات سابقة والتأكد من نظافة المسار
+        git rm -f drivers/kernelsu || true
+        rm -rf drivers/kernelsu .git/modules/drivers/kernelsu
+        mkdir -p drivers
 
-        # Clone KittiSU dev branch directly to guarantee file availability
-        git clone -b dev https://github.com/terebiko/KittiSU.git KittiSU_repo
+        # إضافة KittiSU بالطريقة الرسمية كـ Submodule لتجاوز شرط Kbuild
+        git submodule add -b dev https://github.com/terebiko/KittiSU.git drivers/kernelsu
+        git submodule update --init --recursive
 
-        # Copy kernel source files to drivers/kernelsu safely
-        if [ -d "KittiSU_repo/kernel" ]; then
-          cp -r KittiSU_repo/kernel/* drivers/kernelsu/
-        else
-          echo "Error: KittiSU kernel directory not found!"
-          exit 1
-        fi
-
-        # Bypass KittiSU's strict git submodule/repository check in Kbuild
-        python3 -c '
-        kbuild_path = "drivers/kernelsu/Kbuild"
-        if os_path_exists := __import__("os").path.exists(kbuild_path):
-            with open(kbuild_path, "r") as f:
-                content = f.read()
-            # Remove or neutralize the error check block
-            content = content.replace("error", "warning")
-            with open(kbuild_path, "w") as f:
-                f.write(content)
-        ' || true
-
-        # Alternative sed/python bypass for Kbuild check
-        python3 -c '
-        import os
-        kbuild_path = "drivers/kernelsu/Kbuild"
-        if os.path.exists(kbuild_path):
-            with open(kbuild_path, "r") as f:
-                lines = f.readlines()
-            new_lines = []
-            for line in lines:
-                if "You should use KittiSU as a git submodule" in line or "Can\x27t find KittiSU git submodule" in line:
-                    continue
-                if "$(error" in line or "error " in line and "submodule" in line.lower():
-                    line = "# " + line
-                new_lines.append(line)
-            with open(kbuild_path, "w") as f:
-                f.writelines(new_lines)
-        ' || true
-
+        # ربط KSU بملفات الـ Makefile والـ Kconfig الأساسية فقط إذا لم تكن موجودة
         python3 -c '
         with open("drivers/Makefile", "r") as f:
             content = f.read()
