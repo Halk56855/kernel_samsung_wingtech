@@ -15,9 +15,16 @@ jobs:
       run: |
         find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
 
-    - name: Integrate ReSukiSU
+    - name: Setup ReSukiSU Driver
       run: |
-        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+        rm -rf drivers/kernelsu
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
+        mkdir -p drivers/kernelsu
+        cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
+        rm -rf /tmp/resukisu
+        if ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
         
     - name: Install dependencies
       run: |
