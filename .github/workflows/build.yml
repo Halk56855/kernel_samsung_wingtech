@@ -73,7 +73,7 @@ jobs:
           echo "CONFIG_KSU=y" >> arch/arm64/configs/rsuntk-a04_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/rsuntk-a04_defconfig
 
-      - name: Fix Host Tools and MTK SPM Header Issues for Kernel 4.19
+      - name: Fix Host Tools, SPM Headers, and Clean Flags for Kernel 4.19
         run: |
           python3 - << 'EOF'
           import os
@@ -94,10 +94,8 @@ jobs:
               with open(internal_h, "r", encoding="utf-8", errors="ignore") as f:
                   h_content = f.read()
               
-              # Fix escaped quotes in includes
               h_content = h_content.replace('\\"', '"')
               
-              # Ensure twam_handler_t and struct twam_cfg are defined
               if "twam_handler_t" not in h_content or "struct twam_cfg" not in h_content:
                   header_fix = """
                   #ifndef __TWAM_HANDLER_T_DEFINED
@@ -110,6 +108,17 @@ jobs:
                   
               with open(internal_h, "w", encoding="utf-8") as f:
                   f.write(h_content)
+
+          # 3. Remove any accidental invalid warning flags from configs
+          for root, dirs, files in os.walk("arch/arm64/configs"):
+              for file in files:
+                  path = os.path.join(root, file)
+                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                      c = f.read()
+                  if "-Werror=undeclared-identifier" in c:
+                      c = c.replace("-Werror=undeclared-identifier", "")
+                      with open(path, "w", encoding="utf-8") as f:
+                          f.write(c)
           EOF
 
       - name: Build kernel
@@ -133,15 +142,22 @@ jobs:
             CC=clang \
             HOSTCC=gcc \
             HOSTCXX=g++ \
-            KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=undeclared-identifier -Wno-error=visibility" \
-            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang HOSTCC=gcc HOSTCXX=g++ KCFLAGS="-Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=undeclared-identifier -Wno-error=visibility"
+            KCFLAGS="-Wno-unknown-warning-option -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=visibility" \
+            || make -j1 ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang HOSTCC=gcc HOSTCXX=g++ KCFLAGS="-Wno-unknown-warning-option -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-error=macro-redefined -Wno-error=visibility"
+
+      - name: Package with AnyKernel3-a04
+        run: |
+          git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+          cp arch/arm64/boot/Image AnyKernel3/
+          cd AnyKernel3
+          zip -r ../A04-KernelSU-Kernel.zip *
+          cd ..
 
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: atlas-kernel
+          name: A04-KernelSU-Flashable-Zip
           path: |
+            A04-KernelSU-Flashable-Zip.zip
             .config
             arch/arm64/boot/Image*
-            arch/arm64/boot/dts/**/*.dtb
-            arch/arm64/boot/dts/**/*.dtbo
