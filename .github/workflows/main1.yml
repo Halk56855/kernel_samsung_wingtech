@@ -11,67 +11,54 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Setup Git Identity
+    - name: Clean repository
       run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.local"
+        git checkout drivers/tty/pty.c || true
+        git reset --hard || true
 
-    - name: Fix Kconfig line endings and characters
+    - name: Integrate ReSukiSU & Proper Wiring
       run: |
-        find drivers/ -name "Kconfig" -exec sed -i -e 's/\r$//' {} + || true
+        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
-    - name: Setup ReSukiSU Driver and Force Integration into Drivers Makefile
-      run: |
-        # 1. Clean up any existing drivers/kernelsu to prevent conflicts
-        rm -rf drivers/kernelsu
-
-        # 2. Clone ReSukiSU driver core and place it in drivers/kernelsu
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git /tmp/resukisu
-        mkdir -p drivers/kernelsu
-        if [ -d "/tmp/resukisu/kernel" ]; then
-          cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
-        else
-          cp -r /tmp/resukisu/* drivers/kernelsu/
-        fi
-        rm -rf /tmp/resukisu
-
-        # 3. Cleanly neutralize Kbuild and empty out tools .mk files
-        python3 - << 'EOF'
-        import os
-
-        kbuild_path = "drivers/kernelsu/Kbuild"
-        if os.path.exists(kbuild_path):
-            with open(kbuild_path, "w", encoding="utf-8") as f:
-                f.write("KSU_SRC ?= $(srctree)/drivers/kernelsu\n")
-
-        tools_dir = "drivers/kernelsu/tools"
-        if os.path.exists(tools_dir):
-            for root, dirs, files in os.walk(tools_dir):
-                for file in files:
-                    if file.endswith(".mk"):
-                        filepath = os.path.join(root, file)
-                        with open(filepath, "w", encoding="utf-8") as f:
-                            f.write("# Bypassed check\n")
-        EOF
-
-        # 4. Add Kconfig source entry if missing
-        if [ -f "drivers/Kconfig" ] && ! grep -q "kernelsu/Kconfig" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        if [ ! -d "drivers/kernelsu" ]; then
+          if [ -d "ReSukiSU/kernel" ]; then
+            ln -sf ../ReSukiSU/kernel drivers/kernelsu
+          elif [ -d "kernel" ]; then
+            mv kernel drivers/kernelsu
+          fi
         fi
 
-        # 5. Force drivers/Makefile to compile kernelsu directory
-        if [ -f "drivers/Makefile" ] && ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-        fi
-        
+        python3 -c '
+        with open("drivers/Makefile", "r") as f:
+            content = f.read()
+        if "kernelsu" not in content:
+            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
+            with open("drivers/Makefile", "w") as f:
+                f.write(content)
+        '
+
+        python3 -c '
+        with open("drivers/Kconfig", "r") as f:
+            content = f.read()
+        if "drivers/kernelsu/Kconfig" not in content:
+            idx = content.rfind("endmenu")
+            if idx != -1:
+                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
+            else:
+                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
+            with open("drivers/Kconfig", "w") as f:
+                f.write(content)
+        '
+
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
           libncurses5-dev ccache make git zip \
-          wget xz-utils device-tree-compiler libfdt-dev dos2unix
-          
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi
+
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
@@ -80,69 +67,70 @@ jobs:
         cd toolchain/gcc
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
-        
-    - name: Download Clang r383902
+
+    - name: Download Clang r383902 (Compatible)
       run: |
         cd toolchain/clang
         wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
-        
+
     - name: Export environment variables
       run: |
         echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
         echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "KCFLAGS=-w" >> $GITHUB_ENV
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
-        
+
     - name: Build kernel
       run: |
-        # 1. Generate base configuration
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
-        # 2. Append the custom config fragment and force CONFIG_KSU=y
-        if [ -f "rsuntk-config" ]; then
-          cat rsuntk-config >> $(pwd)/out/.config
-        elif [ -f "arch/arm64/configs/rsuntk-config" ]; then
-          cat arch/arm64/configs/rsuntk-config >> $(pwd)/out/.config
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
+
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
         
-        # Ensure KSU is explicitly enabled in .config
-        echo "CONFIG_KSU=y" >> $(pwd)/out/.config
-        echo "CONFIG_KSU_MANUAL_HOOK=y" >> $(pwd)/out/.config
+        cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_IKHEADERS=n
+        CONFIG_KSU=y
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_KPROBE_HOOKS=y
+        EOT
 
-        # 3. Update configuration dependencies
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          olddefconfig
-
-        # 4. Compile the kernel
-        make -C $(pwd) O=$(pwd)/out \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          -j$(nproc)
-          
-    - name: Clone AnyKernel3
-      run: |
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git anykernel
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
 
-    - name: Pack Kernel with AnyKernel3
+    - name: Package with AnyKernel3-a04
       run: |
-        cp out/arch/arm64/boot/Image anykernel/
-        cp out/arch/arm64/boot/dtb* anykernel/ 2>/dev/null || true
-        cp out/arch/arm64/boot/dtbo* anykernel/ 2>/dev/null || true
-        cd anykernel
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
         zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
-    - name: Upload Flashable Zip Artifact
+    - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-AnyKernel3
+        name: A04-ReSukiSU-Flashable-Zip
         path: A04-ReSukiSU-AnyKernel3.zip
