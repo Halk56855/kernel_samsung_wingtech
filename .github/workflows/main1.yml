@@ -16,18 +16,22 @@ jobs:
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
 
-    - name: Integrate KittiSU (terebiko) & Proper Wiring
+    - name: Integrate Root Solution & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/terebiko/KittiSU/dev/kernel/setup.sh" | bash -s dev
+        curl -LSs "https://raw.githubusercontent.com/terebiko/KittiSU/dev/kernel/setup.sh" | bash -s dev || \
+        curl -LSs "https://raw.githubusercontent.com/deepongi-labs/KernelSU-KoWSU/master/kernel/setup.sh" | bash -s master || true
 
-        if [ ! -d "drivers/kernelsu" ]; then
-          if [ -d "KittiSU/kernel" ]; then
-            ln -sf ../KittiSU/kernel drivers/kernelsu
-          elif [ -d "KernelSU/kernel" ]; then
-            ln -sf ../KernelSU/kernel drivers/kernelsu
-          elif [ -d "kernel" ]; then
-            mv kernel drivers/kernelsu
-          fi
+        # Remove any existing drivers/kernelsu to prevent overwrite conflicts
+        rm -rf drivers/kernelsu
+
+        if [ -d "kernel" ]; then
+          mv kernel drivers/kernelsu
+        elif [ -d "KittiSU/kernel" ]; then
+          ln -sf ../KittiSU/kernel drivers/kernelsu
+        elif [ -d "KernelSU-KoWSU/kernel" ]; then
+          ln -sf ../KernelSU-KoWSU/kernel drivers/kernelsu
+        elif [ -d "KernelSU/kernel" ]; then
+          ln -sf ../KernelSU/kernel drivers/kernelsu
         fi
 
         python3 -c '
@@ -129,10 +133,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-terebiko-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Kernel-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-terebiko-KittiSU-Flashable-Zip
-        path: A04-terebiko-KittiSU-AnyKernel3.zip
+        name: A04-Kernel-Flashable-Zip
+        path: A04-Kernel-AnyKernel3.zip
