@@ -110,6 +110,9 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
+        # توليد ملفات رأس SELinux والتبعيات الأساسية قبل البناء لتجنب خطأ flask.h
+        make -C $(pwd) O=$(pwd)/out prepare modules_prepare
+
         make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j1
 
     - name: Package into AnyKernel3 Flashable Zip
