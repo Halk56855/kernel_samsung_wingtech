@@ -17,30 +17,12 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate KittiSU Cleanly & Wire Kconfig/Makefile
+    - name: Run KittiSU Setup Script & Proper Wiring
       run: |
-        # إزالة أي مخلفات سابقة لضمان نظافة البناء
-        rm -rf drivers/kernelsu Kitti_repo
-        
-        # استنساخ مستودع KittiSU
-        git clone -b dev https://github.com/terebiko/KittiSU.git Kitti_repo
+        # تشغيل سكربت التثبيت الرسمي الخاص بـ KittiSU باستخدام الرابط المخصص
+        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash
 
-        # إنشاء مجلد drivers/kernelsu ونقل ملفات الكيرنل وتهيئة مستودع محلي لتجاوز فحص Kbuild
-        mkdir -p drivers/kernelsu
-        cp -r Kitti_repo/kernel/* drivers/kernelsu/
-        
-        cd drivers/kernelsu
-        git init
-        git config user.name "Builder"
-        git config user.email "builder@action.local"
-        git add .
-        git commit -m "KittiSU integration" || true
-        cd ../..
-
-        # تنظيف مجلد المستودع المؤقت
-        rm -rf Kitti_repo
-
-        # ربط KSU بملف الـ Makefile في الـ drivers
+        # ربط KSU بملف الـ Makefile الخاص بالـ drivers
         python3 -c '
         with open("drivers/Makefile", "r") as f:
             content = f.read()
@@ -50,7 +32,7 @@ jobs:
                 f.write(content)
         '
 
-        # ربط KSU بملف الـ Kconfig في الـ drivers
+        # ربط KSU بملف الـ Kconfig الخاص بالـ drivers
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
