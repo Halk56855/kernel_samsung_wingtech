@@ -17,9 +17,9 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Integrate KittiSU via Setup Script
+    - name: Integrate KittiSU via Official Setup Script
       run: |
-        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash -s testing
+        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash
 
         python3 -c '
         with open("drivers/Makefile", "r") as f:
@@ -99,6 +99,9 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
+        CONFIG_KPM=y
+        CONFIG_KALLSYMS=y
+        CONFIG_KALLSYMS_ALL=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
