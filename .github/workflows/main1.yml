@@ -110,10 +110,10 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد الملفات الأساسية ورؤوس SELinux (بما في ذلك flask.h) مسبقاً لحل مشكلة الترتيب قبل بناء السائقين
+        # توليد الملفات الأساسية وبناء مجلد الأمان مسبقاً لضمان توفر flask.h قبل بناء السائقين
         make -C $(pwd) O=$(pwd)/out prepare
         make -C $(pwd) O=$(pwd)/out scripts
-        make -C $(pwd) O=$(pwd)/out security/selinux/
+        make -C $(pwd) O=$(pwd)/out security/
 
         make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j1
 
