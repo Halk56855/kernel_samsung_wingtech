@@ -16,13 +16,22 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra (Direct & Safe Wiring)
+    - name: Integrate SukiSU-Ultra & Fix KPM Headers
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
         mkdir -p drivers/kernelsu
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
+
+        # إصلاح مسار ملفات UAPI الخاصة بـ KPM لنواة 4.19
+        if [ -d "drivers/kernelsu/include/uapi" ]; then
+          mkdir -p drivers/kernelsu/kpm
+          ln -sf ../include/uapi drivers/kernelsu/kpm/uapi
+        elif [ -d "drivers/kernelsu/uapi" ]; then
+          mkdir -p drivers/kernelsu/kpm
+          ln -sf ../uapi drivers/kernelsu/kpm/uapi
+        fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
           echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
