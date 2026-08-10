@@ -13,41 +13,30 @@ jobs:
 
     - name: Integrate rsuntk KernelSU & Proper Wiring
       run: |
-        # تحميل وسحب كود KernelSU من مستودع rsuntk
-        curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
-
-        # إنشاء الرابط الرمزي المطلوب بدقة لضمان قراءة ملفات Kconfig و Makefile
+        echo "[-] Cleaning up old KernelSU remnants..."
         rm -rf drivers/kernelsu
+        rm -rf KernelSU
+
+        echo "[-] Cloning rsuntk KernelSU repository..."
+        git clone https://github.com/rsuntk/KernelSU.git KernelSU -b main
+
+        echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
         if [ -d "KernelSU/kernel" ]; then
           ln -sf ../KernelSU/kernel drivers/kernelsu
-        elif [ -d "KernelSU" ]; then
+        else
           ln -sf ../KernelSU drivers/kernelsu
         fi
 
-        # إضافة مسار الكومبايلر لـ Makefile بأمان تام
-        python3 -c '
-        path = "drivers/Makefile"
-        with open(path, "r") as f:
-            content = f.read()
-        if "kernelsu" not in content:
-            with open(path, "a") as f:
-                f.write("\nobj-$(CONFIG_KSU) += kernelsu/\n")
-        '
-
-        # إدراج مصدر Kconfig في المكان الصحيح داخل drivers/Kconfig
-        python3 -c '
-        path = "drivers/Kconfig"
-        with open(path, "r") as f:
-            content = f.read()
-        if "drivers/kernelsu/Kconfig" not in content:
-            idx = content.rfind("endmenu")
-            if idx != -1:
-                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
-            else:
-                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
-            with open(path, "w") as f:
-                f.write(content)
-        '
+        echo "[-] Safely wiring Kconfig and Makefile..."
+        if ! grep -q "kernelsu" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
+        
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
+        fi
+        
+        echo "[+] KernelSU integrated successfully without touching core drivers!"
 
     - name: Install build dependencies
       run: |
