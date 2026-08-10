@@ -11,6 +11,11 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
 
+      - name: Clone Clang Toolchain (r383902)
+        run: |
+          mkdir -p toolchain/clang/host/linux-x86
+          git clone --depth=1 https://github.com/afaneh-toolchain/prebuilts_clang_host_linux-x86_clang-r383902 toolchain/clang/host/linux-x86/clang-r383902
+
       - name: Setup Clang Toolchain & Fix ld.lld Path
         run: |
           TOOLCHAIN_DIR="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902"
