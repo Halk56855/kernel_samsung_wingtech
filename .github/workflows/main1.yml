@@ -37,9 +37,11 @@ jobs:
         fi
         rm -rf KittiSU_tmp
 
-        # ضمان وجود ارتباط لمجلد uapi داخل نطاق البحث إن وجد في مكان آخر بالمستودع
-        if [ ! -f "drivers/kernelsu/policy/app_profile.h" ] && [ -d "drivers/kernelsu/kernel/policy" ]; then
-          cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
+        # حل مشكلة تضمين uapi/app_profile.h نهائياً عبر إنشاء ارتباط رمزي دقيق
+        if [ -d "drivers/kernelsu/policy" ] && [ -d "drivers/kernelsu/uapi" ]; then
+          cd drivers/kernelsu/policy
+          ln -sfn ../uapi uapi
+          cd ../../..
         fi
 
         # تهيئة مستودع Git محلي داخل مجلد KSU لتجاوز فحص الـ Submodule
@@ -125,14 +127,14 @@ jobs:
         echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/drivers/kernelsu/include" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" >> $GITHUB_ENV
         echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Build Non-GKI kernel for Samsung A04 (Kernel 4.19)
       run: |
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
@@ -157,11 +159,11 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
