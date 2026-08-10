@@ -1,149 +1,99 @@
-name: Build Non-GKI Kernel Samsung Wingtech v2 (a04) - KittiSU
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - KittiSU)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository
+    - name: Integrate KittiSU & Proper Wiring
       run: |
-        git checkout drivers/tty/pty.c || true
-        git checkout kernel || true
-        git reset --hard || true
+        echo "[-] Cleaning up old KittiSU remnants..."
+        rm -rf drivers/kernelsu
+        rm -rf KittiSU
 
-    - name: Integrate KittiSU Correctly & Fix UAPI Headers Path
-      run: |
-        set -e
-        # تنظيف أي مخلفات سابقة
-        rm -rf drivers/kernelsu KittiSU_tmp
+        echo "[-] Cloning KittiSU repository..."
+        git clone https://github.com/terebiko/KittiSU.git KittiSU -b testing
 
-        # استنساخ مستودع KittiSU الرسمي
-        git clone https://github.com/terebiko/KittiSU.git KittiSU_tmp
-
-        # إنشاء مجلد drivers/kernelsu
-        mkdir -p drivers/kernelsu
-
-        # نقل الملفات بالطريقة التي تضمن توافق مسارات uapi بشكل تام
-        if [ -d "KittiSU_tmp/kernel" ]; then
-          cp -r KittiSU_tmp/kernel/* drivers/kernelsu/
+        echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
+        if [ -d "KittiSU/kernel" ]; then
+          ln -sf ../KittiSU/kernel drivers/kernelsu
         else
-          cp -r KittiSU_tmp/* drivers/kernelsu/
-        fi
-        rm -rf KittiSU_tmp
-
-        # حل مشكلة تضمين uapi/app_profile.h نهائياً عبر إنشاء ارتباط رمزي دقيق
-        if [ -d "drivers/kernelsu/policy" ] && [ -d "drivers/kernelsu/uapi" ]; then
-          cd drivers/kernelsu/policy
-          ln -sfn ../uapi uapi
-          cd ../../..
+          ln -sf ../KittiSU drivers/kernelsu
         fi
 
-        # تهيئة مستودع Git محلي داخل مجلد KSU لتجاوز فحص الـ Submodule
-        cd drivers/kernelsu
-        git init
-        git config user.name "Builder"
-        git config user.email "builder@action.local"
-        git add .
-        git commit -m "KittiSU init" || true
-        cd ../..
-
-        # تجاوز فحص الـ manual_hook_check.mk لكرنل 4.19 Non-GKI
-        if [ -f "drivers/kernelsu/tools/manual_hook_check.mk" ]; then
-          echo "# Bypassed for Non-GKI 4.19" > drivers/kernelsu/tools/manual_hook_check.mk
+        echo "[-] Safely wiring Kconfig and Makefile..."
+        if ! grep -q "kernelsu" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
+        
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
+        fi
+        
+        echo "[+] KittiSU integrated successfully without touching core drivers!"
 
-        # تجاوز أي فحص صارم أو أخطاء في ملف Kbuild الخاص بـ KittiSU
-        python3 -c '
-        kbuild_path = "drivers/kernelsu/Kbuild"
-        import os
-        if os.path.exists(kbuild_path):
-            with open(kbuild_path, "r") as f:
-                content = f.read()
-            content = content.replace("$(error", "#$(error")
-            content = content.replace("error ", "#error ")
-            with open(kbuild_path, "w") as f:
-                f.write(content)
-        ' || true
-
-        # ربط KSU بملف الـ Makefile في الـ drivers إذا لم يكن مربوطاً
-        python3 -c '
-        with open("drivers/Makefile", "r") as f:
-            content = f.read()
-        if "kernelsu" not in content:
-            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
-            with open("drivers/Makefile", "w") as f:
-                f.write(content)
-        '
-
-        # ربط KSU بملف الـ Kconfig في الـ drivers إذا لم يكن مربوطاً
-        python3 -c '
-        with open("drivers/Kconfig", "r") as f:
-            content = f.read()
-        if "drivers/kernelsu/Kconfig" not in content:
-            idx = content.rfind("endmenu")
-            if idx != -1:
-                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
-            else:
-                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
-            with open("drivers/Kconfig", "w") as f:
-                f.write(content)
-        '
-
-    - name: Install dependencies
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip \
-          wget xz-utils device-tree-compiler libfdt-dev \
-          gcc-arm-linux-gnueabi
+          libncurses5-dev ccache make git zip wget xz-utils \
+          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
 
-    - name: Prepare directories
+    - name: Prepare Toolchains directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC toolchain
+    - name: Download GCC Toolchain
       run: |
         cd toolchain/gcc
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
-    - name: Download Clang r383902 (Compatible)
+    - name: Download Compatible Clang Toolchain
       run: |
         cd toolchain/clang
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
-    - name: Export environment variables
+    - name: Set Environment Variables
       run: |
-        echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
+        GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
+        
+        echo "$CLANG_PATH" >> $GITHUB_PATH
+
+        echo "CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "LD=ld.lld" >> $GITHUB_ENV
+        echo "AR=llvm-ar" >> $GITHUB_ENV
+        echo "NM=llvm-nm" >> $GITHUB_ENV
+        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
+        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
+        echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" >> $GITHUB_ENV
-        echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -Wno-unknown-warning-option" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Build Non-GKI kernel for Samsung A04 (Kernel 4.19)
+    - name: Configure and Compile Kernel
       run: |
-        make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          rsuntk-a04_defconfig
+        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
-        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
-          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        if [ -f "arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
+        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات KittiSU بالكامل
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
-        
+
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
@@ -151,34 +101,23 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KPM=y
-        CONFIG_KALLSYMS=y
-        CONFIG_KALLSYMS_ALL=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j1
+        make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j1
 
-    - name: Package with AnyKernel3-a04
+    - name: Package into AnyKernel3 Flashable Zip
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Non-GKI-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
-    - name: Upload kernel artifact
+    - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Non-GKI-KittiSU-Flashable-Zip
-        path: A04-Non-GKI-KittiSU-AnyKernel3.zip
+        name: A04-KittiSU-4.19-Zip
+        path: A04-KittiSU-AnyKernel3.zip
