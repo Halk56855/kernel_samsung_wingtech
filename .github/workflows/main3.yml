@@ -24,13 +24,9 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # إصلاح مسار ملفات UAPI الخاصة بـ KPM لنواة 4.19
-        if [ -d "drivers/kernelsu/include/uapi" ]; then
-          mkdir -p drivers/kernelsu/kpm
-          ln -sf ../include/uapi drivers/kernelsu/kpm/uapi
-        elif [ -d "drivers/kernelsu/uapi" ]; then
-          mkdir -p drivers/kernelsu/kpm
-          ln -sf ../uapi drivers/kernelsu/kpm/uapi
+        # تصحيح مسار تضمين ملف supercall.h آلياً داخل kpm.h لتوافق نواة 4.19
+        if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
+          sed -i 's|#include "uapi/supercall.h"|#include "../uapi/supercall.h"|g' drivers/kernelsu/kpm/kpm.h
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
