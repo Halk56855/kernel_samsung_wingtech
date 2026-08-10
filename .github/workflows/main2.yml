@@ -126,6 +126,9 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
+        # توليد ملفات تعريف SELinux (flask.h) مسبقاً لتجنب خطأ عدم العثور عليها في نواة 4.19
+        make -C $(pwd) O=$(pwd)/out security/selinux/flask.h || true
+
         # عملية البناء الرئيسية مع دعم آلية التراجع الآمن للاستقرار
         make -C $(pwd) O=$(pwd)/out \
           KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
