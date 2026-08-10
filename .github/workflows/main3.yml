@@ -18,6 +18,7 @@ jobs:
 
     - name: Integrate SukiSU-Ultra (Direct & Safe Wiring)
       run: |
+        rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
         mkdir -p drivers/kernelsu
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
