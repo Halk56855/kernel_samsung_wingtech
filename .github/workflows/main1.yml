@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - KittiSU)
 
 on:
   workflow_dispatch:
@@ -11,20 +11,20 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate ReSukiSU & Proper Wiring
+    - name: Integrate KittiSU & Proper Wiring
       run: |
-        echo "[-] Cleaning up old ReSukiSU remnants..."
+        echo "[-] Cleaning up old KittiSU remnants..."
         rm -rf drivers/kernelsu
-        rm -rf ReSukiSU
+        rm -rf KittiSU
 
-        echo "[-] Cloning ReSukiSU repository..."
-        git clone https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU -b dev
+        echo "[-] Cloning KittiSU repository..."
+        git clone https://github.com/terebiko/KittiSU.git KittiSU -b testing
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
-        if [ -d "ReSukiSU/kernel" ]; then
-          ln -sf ../ReSukiSU/kernel drivers/kernelsu
+        if [ -d "KittiSU/kernel" ]; then
+          ln -sf ../KittiSU/kernel drivers/kernelsu
         else
-          ln -sf ../ReSukiSU drivers/kernelsu
+          ln -sf ../KittiSU drivers/kernelsu
         fi
 
         echo "[-] Safely wiring Kconfig and Makefile..."
@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
         
-        echo "[+] ReSukiSU integrated successfully without touching core drivers!"
+        echo "[+] KittiSU integrated successfully without touching core drivers!"
 
     - name: Install build dependencies
       run: |
@@ -91,7 +91,7 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات ReSukiSU بالكامل
+        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات KittiSU بالكامل
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
@@ -101,6 +101,8 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
+        CONFIG_KALLSYMS=y
+        CONFIG_KALLSYMS_ALL=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
@@ -114,10 +116,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-4.19-Zip
-        path: A04-ReSukiSU-AnyKernel3.zip
+        name: A04-KittiSU-4.19-Zip
+        path: A04-KittiSU-AnyKernel3.zip
