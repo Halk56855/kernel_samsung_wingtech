@@ -83,8 +83,8 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        # إضافة مسارات SELinux إلى خيارات المترجم KCFLAGS لضمان رؤية flask.h من أي مكان في النواة
-        echo "KCFLAGS=-w -Wno-unknown-warning-option -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux" >> $GITHUB_ENV
+        # توجيه المترجم لمسارات رؤوس SELinux في مجلد الإخراج (out) ومجلد المصدر
+        echo "KCFLAGS=-w -Wno-unknown-warning-option -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
@@ -111,12 +111,12 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد ملفات وتوابع SELinux وملف flask.h مسبقاً قبل البناء الفعلي
+        # تجهيز وإجبار بناء نظام الأمان وتوليد ملف flask.h مسبقاً قبل بناء السائقين والنواة
         make -C $(pwd) O=$(pwd)/out prepare
         make -C $(pwd) O=$(pwd)/out scripts
-        make -C $(pwd) O=$(pwd)/out security/selinux/
+        make -C $(pwd) O=$(pwd)/out security/
 
-        make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux" -j1
+        make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" -j1
 
     - name: Package into AnyKernel3 Flashable Zip
       run: |
