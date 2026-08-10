@@ -11,18 +11,43 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate rsuntk KernelSU & Ensure Proper Wiring
+    - name: Integrate rsuntk KernelSU & Proper Wiring
       run: |
+        # تحميل وسحب كود KernelSU من مستودع rsuntk
         curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
 
-        # إصلاح وتأكيد الربط التلقائي لمتطلبات KernelSU دون المساس بأي ملفات تعريف (Drivers) أو تعديلها يدوياً
-        if [ ! -e "drivers/kernelsu" ]; then
-          if [ -d "KernelSU/kernel" ]; then
-            ln -sf ../KernelSU/kernel drivers/kernelsu
-          elif [ -d "KernelSU" ]; then
-            ln -sf ../KernelSU drivers/kernelsu
-          fi
+        # إنشاء الرابط الرمزي المطلوب بدقة لضمان قراءة ملفات Kconfig و Makefile
+        rm -rf drivers/kernelsu
+        if [ -d "KernelSU/kernel" ]; then
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+        elif [ -d "KernelSU" ]; then
+          ln -sf ../KernelSU drivers/kernelsu
         fi
+
+        # إضافة مسار الكومبايلر لـ Makefile بأمان تام
+        python3 -c '
+        path = "drivers/Makefile"
+        with open(path, "r") as f:
+            content = f.read()
+        if "kernelsu" not in content:
+            with open(path, "a") as f:
+                f.write("\nobj-$(CONFIG_KSU) += kernelsu/\n")
+        '
+
+        # إدراج مصدر Kconfig في المكان الصحيح داخل drivers/Kconfig
+        python3 -c '
+        path = "drivers/Kconfig"
+        with open(path, "r") as f:
+            content = f.read()
+        if "drivers/kernelsu/Kconfig" not in content:
+            idx = content.rfind("endmenu")
+            if idx != -1:
+                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
+            else:
+                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
+            with open(path, "w") as f:
+                f.write(content)
+        '
 
     - name: Install build dependencies
       run: |
