@@ -95,7 +95,7 @@ jobs:
         fi
 
         # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب وتفعيل متطلبات KittiSU و Kprobes بالكامل
-        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config ||true
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
@@ -110,9 +110,10 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد الملفات والتبعيات الأساسية ورؤوس SELinux (مثل flask.h) مسبقاً لحل مشكلة الترتيب قبل بناء السائقين
-        make -C $(pwd) O=$(pwd)/out prepare modules_prepare
-        make -C $(pwd) O=$(pwd)/out security/selinux/ || true
+        # توليد الملفات الأساسية ورؤوس SELinux (بما في ذلك flask.h) مسبقاً لحل مشكلة الترتيب قبل بناء السائقين
+        make -C $(pwd) O=$(pwd)/out prepare
+        make -C $(pwd) O=$(pwd)/out scripts
+        make -C $(pwd) O=$(pwd)/out security/selinux/
 
         make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j1
 
