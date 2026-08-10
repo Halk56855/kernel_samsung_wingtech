@@ -17,12 +17,10 @@ jobs:
         git checkout kernel || true
         git reset --hard || true
 
-    - name: Run KittiSU Setup Script & Proper Wiring
+    - name: Integrate KittiSU via Setup Script
       run: |
-        # تشغيل سكربت التثبيت الرسمي الخاص بـ KittiSU باستخدام الرابط المخصص
-        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash
+        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash -s testing
 
-        # ربط KSU بملف الـ Makefile الخاص بالـ drivers
         python3 -c '
         with open("drivers/Makefile", "r") as f:
             content = f.read()
@@ -32,7 +30,6 @@ jobs:
                 f.write(content)
         '
 
-        # ربط KSU بملف الـ Kconfig الخاص بالـ drivers
         python3 -c '
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
