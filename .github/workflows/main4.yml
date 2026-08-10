@@ -11,9 +11,18 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate rsuntk KernelSU
+    - name: Integrate rsuntk KernelSU & Ensure Proper Wiring
       run: |
         curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
+
+        # إصلاح وتأكيد الربط التلقائي لمتطلبات KernelSU دون المساس بأي ملفات تعريف (Drivers) أو تعديلها يدوياً
+        if [ ! -e "drivers/kernelsu" ]; then
+          if [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
+          elif [ -d "KernelSU" ]; then
+            ln -sf ../KernelSU drivers/kernelsu
+          fi
+        fi
 
     - name: Install build dependencies
       run: |
