@@ -38,8 +38,12 @@ jobs:
         if ! grep -q "kernelsu" drivers/Makefile; then
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
+
+        echo "[-] Patching selinux_hide.c for Samsung 4.19 avc_has_perm signature compatibility..."
+        sed -i 's/avc_has_perm(current_sid(),/avc_has_perm(\&selinux_state, current_sid(),/g' drivers/kernelsu/feature/selinux_hide.c
+        sed -i 's/avc_has_perm(mysid,/avc_has_perm(\&selinux_state, mysid,/g' drivers/kernelsu/feature/selinux_hide.c
         
-        echo "[+] KittiSU integrated successfully without touching core kernel drivers!"
+        echo "[+] KittiSU integrated and patched successfully!"
 
     - name: Install build dependencies
       run: |
@@ -83,7 +87,6 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        # توجيه المترجم لمسارات رؤوس SELinux في مجلد الإخراج (out) ومجلد المصدر
         echo "KCFLAGS=-w -Wno-unknown-warning-option -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
@@ -95,7 +98,6 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب وتفعيل متطلبات KittiSU و Kprobes بالكامل
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
@@ -111,7 +113,6 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # تجهيز وإجبار بناء نظام الأمان وتوليد ملف flask.h مسبقاً قبل بناء السائقين والنواة
         make -C $(pwd) O=$(pwd)/out prepare
         make -C $(pwd) O=$(pwd)/out scripts
         make -C $(pwd) O=$(pwd)/out security/
