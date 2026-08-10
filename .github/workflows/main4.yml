@@ -44,7 +44,7 @@ jobs:
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
           libncurses5-dev ccache make git zip wget xz-utils \
-          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi
+          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
 
     - name: Prepare Toolchains directories
       run: mkdir -p toolchain/gcc toolchain/clang
@@ -91,7 +91,11 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
+        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات KernelSU بالكامل
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
+
         cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
