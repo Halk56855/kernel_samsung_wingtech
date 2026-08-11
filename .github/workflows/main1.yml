@@ -39,7 +39,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux, policydb & forced obj-y compilation..."
+        echo "[-] Applying robust Python patches for Samsung 4.19 SELinux, policydb linkage & forced obj-y compilation..."
         python3 - << 'EOF'
         import os
         import re
@@ -55,7 +55,6 @@ jobs:
                     mk_code = re.sub(r'obj-\$[A-Za-z0-9_]+', 'obj-y', mk_code)
                     with open(filepath, "w") as f:
                         f.write(mk_code)
-                    print(f"[+] Forced obj-y in {filepath}")
 
         # 2. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
         for root, dirs, files in os.walk("drivers/kernelsu"):
@@ -115,7 +114,7 @@ jobs:
             with open(path_rules, "w") as f:
                 f.write(rules_code)
 
-        # 5. Export policydb and selinux_enforcing globally in kernel SELinux source code
+        # 5. Export policydb and selinux_enforcing globally in kernel SELinux source code using robust regex
         for root, dirs, files in os.walk("security/selinux"):
             for file in files:
                 if file.endswith(".c"):
@@ -123,15 +122,11 @@ jobs:
                     with open(filepath, "r") as f:
                         sec_code = f.read()
                     
-                    modified = False
-                    if "struct policydb policydb" in sec_code and "static" in sec_code:
-                        sec_code = sec_code.replace("static struct policydb policydb", "struct policydb policydb")
-                        modified = True
-                    if "int selinux_enforcing" in sec_code and "static" in sec_code:
-                        sec_code = sec_code.replace("static int selinux_enforcing", "int selinux_enforcing")
-                        modified = True
-                        
-                    if modified:
+                    original_code = sec_code
+                    sec_code = re.sub(r'\bstatic\s+struct\s+policydb\s+policydb\b', 'struct policydb policydb', sec_code)
+                    sec_code = re.sub(r'\bstatic\s+int\s+selinux_enforcing\b', 'int selinux_enforcing', sec_code)
+                    
+                    if sec_code != original_code:
                         with open(filepath, "w") as f:
                             f.write(sec_code)
                         print(f"[+] Successfully exported symbols in {filepath}")
