@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Full UAPI Headers
+    - name: Integrate SukiSU-Ultra & Kernel 4.19 Compatibility Patches
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -25,7 +25,7 @@ jobs:
         mkdir -p drivers/kernelsu
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         
-        # 2. نسخ مجلد uapi الجذري المفقود الذي يحتوي على تعريفات KPM الكاملة (supercall, kpm_cmd, وغيرها)
+        # 2. نسخ مجلد uapi الجذري الذي يحتوي على تعريفات KPM الكاملة
         if [ -d "temp_sukisu/uapi" ]; then
           mkdir -p drivers/kernelsu/uapi
           cp -rf temp_sukisu/uapi/* drivers/kernelsu/uapi/
@@ -33,14 +33,17 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 3. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
+
+        # 4. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 4. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط لضمان قراءة الهيدرز بدقة
+        # 5. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط
         if [ -f "drivers/kernelsu/Makefile" ]; then
           echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
