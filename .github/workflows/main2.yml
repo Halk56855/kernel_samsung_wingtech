@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech v3 (a04) - ReSukiSU
+name: Build Kernel Samsung Galaxy A04 (ReSukiSU Non-GKI 4.19)
 
 on:
   workflow_dispatch:
@@ -11,66 +11,20 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU for Non-GKI 4.19
+    - name: Clean repository and setup ReSukiSU automatically
       run: |
         git reset --hard || true
-
-        # 1. استنساخ ReSukiSU وتجهيز المجلد بنجاح
+        
+        # 1. تنزيل واستنساخ ReSukiSU النظيف
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل في حال وجود مجلد فرعي للـ kernel
-        if [ -d "drivers/kernelsu/kernel" ]; then
-          cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
+        # 2. تشغيل سكريبت الإعداد الرسمي لتطبيق الـ Manual Hooks و Kconfig تلقائياً لنواة Non-GKI 4.19
+        if [ -f "drivers/kernelsu/kernel/setup.sh" ]; then
+            bash drivers/kernelsu/kernel/setup.sh
+        elif [ -f "drivers/kernelsu/setup.sh" ]; then
+            bash drivers/kernelsu/setup.sh
         fi
-
-        # 3. تحييد ملفات الفحص والـ Submodule بالكامل لمنع توقف البناء نهائياً
-        python3 - << 'EOF'
-        import os
-
-        # تجاوز فحص الـ Submodule
-        kbuild_path = "drivers/kernelsu/Kbuild"
-        if os.path.exists(kbuild_path):
-            with open(kbuild_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            content = content.replace("$(error", "$(warning")
-            with open(kbuild_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-        # تفريغ جميع ملفات الفحص والتحقق في tools لمنع أخطاء الـ static export check
-        tools_dir = "drivers/kernelsu/tools"
-        if os.path.exists(tools_dir):
-            for root, dirs, files in os.walk(tools_dir):
-                for file in files:
-                    if file.endswith(".mk"):
-                        filepath = os.path.join(root, file)
-                        with open(filepath, "w", encoding="utf-8") as f:
-                            f.write("# Bypassed check\n")
-        EOF
-
-        # 4. ربط ملف Kconfig الخاص بـ ReSukiSU داخل drivers/Kconfig بشكل آمن
-        python3 -c '
-        kconfig_path = "drivers/Kconfig"
-        with open(kconfig_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        if "drivers/kernelsu/Kconfig" not in content:
-            if "endmenu" in content:
-                content = content.rsplit("endmenu", 1)[0] + "source \"drivers/kernelsu/Kconfig\"\n\nendmenu\n" + content.rsplit("endmenu", 1)[1]
-            else:
-                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
-            with open(kconfig_path, "w", encoding="utf-8") as f:
-                f.write(content)
-        '
-
-        # 5. ربط Makefile لضمان ترجمة وتضمين كود ReSukiSU داخل النواة (Built-in obj-y)
-        python3 -c '
-        makefile_path = "drivers/Makefile"
-        with open(makefile_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        if "kernelsu" not in content:
-            with open(makefile_path, "a", encoding="utf-8") as f:
-                f.write("\nobj-$(CONFIG_KSU) += kernelsu/\n")
-        '
 
     - name: Install dependencies
       run: |
@@ -114,7 +68,7 @@ jobs:
 
     - name: Build kernel
       run: |
-        # 1. حقن خيارات ReSukiSU المتوافقة في ملف الـ Defconfig مباشرة
+        # 1. حقن خيارات ReSukiSU المطلوبة في ملف الـ Defconfig الخاص بجهاز A04 (Wingtech)
         DEFCONFIG_FILE="arch/arm64/configs/rsuntk-a04_defconfig"
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
@@ -128,7 +82,7 @@ jobs:
         # 2. تهيئة ملف الإعدادات الأساسي
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
-        # 3. حقن إضافي للتأكد في ملف .config
+        # 3. التأكد من تثبيت وتفعيل خيارات النواة الداخلية
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
@@ -139,10 +93,9 @@ jobs:
         CONFIG_HAVE_KPROBES=y
         EOT
 
-        # تحديث الإعدادات تلقائياً لتوافق النواة
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # 4. عملية البناء الرئيسية مع آلية التراجع الآمن (-j1 في حال فشل التوازي)
+        # 4. عملية البناء مع نظام التراجع التلقائي في حال الضغط (-j1)
         make -C $(pwd) O=$(pwd)/out \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
           -j1
