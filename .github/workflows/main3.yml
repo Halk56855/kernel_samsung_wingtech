@@ -74,7 +74,7 @@ jobs:
                 f.write(content)
         '
 
-        # 5. ضمان العثور على ترويسات uapi (مثل mount.h) عبر إزالة أي تعارض ومسح المجلد القديم إن وجد ثم نسخه
+        # 5. ضمان العثور على ترويسات uapi عبر إزالة أي تعارض ومسح المجلد القديم إن وجد ثم نسخه
         if [ -d "drivers/kernelsu/uapi" ]; then
           rm -rf drivers/kernelsu/include/uapi
           mkdir -p drivers/kernelsu/include/uapi
@@ -101,10 +101,10 @@ jobs:
           fi
         fi
 
-        # 9. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية
+        # 9. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
         if [ -f "drivers/kernelsu/Makefile" ]; then
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
-          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
