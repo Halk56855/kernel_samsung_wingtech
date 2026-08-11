@@ -44,16 +44,18 @@ jobs:
         import os
         import re
 
-        # 1. Force drivers/kernelsu/Makefile to compile unconditionally (obj-y) to eliminate undefined symbols
-        path_ksu_makefile = "drivers/kernelsu/Makefile"
-        if os.path.exists(path_ksu_makefile):
-            with open(path_ksu_makefile, "r") as f:
-                mk_code = f.read()
-            mk_code = re.sub(r'obj-\$\(CONFIG_KSU\)', 'obj-y', mk_code)
-            mk_code = re.sub(r'obj-\$\(CONFIG_KERNEL_SU\)', 'obj-y', mk_code)
-            with open(path_ksu_makefile, "w") as f:
-                f.write(mk_code)
-            print("[+] Patched drivers/kernelsu/Makefile to obj-y successfully")
+        # 1. Force all Makefiles and Kbuild files under drivers/kernelsu to compile unconditionally (obj-y)
+        for root, dirs, files in os.walk("drivers/kernelsu"):
+            for file in files:
+                if file == "Makefile" or file == "Kbuild" or file.endswith(".mk"):
+                    filepath = os.path.join(root, file)
+                    with open(filepath, "r") as f:
+                        mk_code = f.read()
+                    mk_code = re.sub(r'obj-\$\([^)]+\)', 'obj-y', mk_code)
+                    mk_code = re.sub(r'obj-\$[A-Za-z0-9_]+', 'obj-y', mk_code)
+                    with open(filepath, "w") as f:
+                        f.write(mk_code)
+                    print(f"[+] Forced obj-y in {filepath}")
 
         # 2. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
         for root, dirs, files in os.walk("drivers/kernelsu"):
@@ -113,7 +115,7 @@ jobs:
             with open(path_rules, "w") as f:
                 f.write(rules_code)
 
-        # 5. Export policydb globally in kernel SELinux source code
+        # 5. Export policydb and selinux_enforcing globally in kernel SELinux source code
         for root, dirs, files in os.walk("security/selinux"):
             for file in files:
                 if file.endswith(".c"):
@@ -121,11 +123,18 @@ jobs:
                     with open(filepath, "r") as f:
                         sec_code = f.read()
                     
+                    modified = False
                     if "struct policydb policydb" in sec_code and "static" in sec_code:
-                        new_sec_code = sec_code.replace("static struct policydb policydb", "struct policydb policydb")
-                        if new_sec_code != sec_code:
-                            with open(filepath, "w") as f:
-                                f.write(new_sec_code)
+                        sec_code = sec_code.replace("static struct policydb policydb", "struct policydb policydb")
+                        modified = True
+                    if "int selinux_enforcing" in sec_code and "static" in sec_code:
+                        sec_code = sec_code.replace("static int selinux_enforcing", "int selinux_enforcing")
+                        modified = True
+                        
+                    if modified:
+                        with open(filepath, "w") as f:
+                            f.write(sec_code)
+                        print(f"[+] Successfully exported symbols in {filepath}")
 
         print("[+] Python precise patching & exporting completed successfully!")
         EOF
