@@ -16,38 +16,33 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Finalize Header Structure
+    - name: Integrate SukiSU-Ultra & Full UAPI Headers
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
+        
+        # 1. نسخ نواة SukiSU-Ultra الأساسية
         mkdir -p drivers/kernelsu
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
+        
+        # 2. نسخ مجلد uapi الجذري المفقود الذي يحتوي على تعريفات KPM الكاملة (supercall, kpm_cmd, وغيرها)
+        if [ -d "temp_sukisu/uapi" ]; then
+          mkdir -p drivers/kernelsu/uapi
+          cp -rf temp_sukisu/uapi/* drivers/kernelsu/uapi/
+        fi
+        
         rm -rf temp_sukisu
 
-        # إنشاء الهيكلة الكاملة لمجلدات uapi الفرعية لضمان عدم ضياع أي مسار تضمين
-        mkdir -p drivers/kernelsu/uapi
-        mkdir -p drivers/kernelsu/kpm/uapi
-        mkdir -p drivers/kernelsu/policy/uapi
-
-        # نسخ ملفات uapi و supercall.h و app_profile.h إلى كافة المسارات المحتملة بدقة تامة
-        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
-        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/kpm/uapi/ \;
-        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/kpm/ \;
-        
-        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
-        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/policy/uapi/ \;
-        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/policy/ \;
-
-        # إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 3. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط دون المساس بملفات النواة الأصلية
+        # 4. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط لضمان قراءة الهيدرز بدقة
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy -I$(src)/kpm/uapi -I$(src)/policy/uapi' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
