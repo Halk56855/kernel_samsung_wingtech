@@ -39,12 +39,23 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux, policydb & LTO compatibility..."
+        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux, policydb & forced obj-y compilation..."
         python3 - << 'EOF'
         import os
         import re
 
-        # 1. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
+        # 1. Force drivers/kernelsu/Makefile to compile unconditionally (obj-y) to eliminate undefined symbols
+        path_ksu_makefile = "drivers/kernelsu/Makefile"
+        if os.path.exists(path_ksu_makefile):
+            with open(path_ksu_makefile, "r") as f:
+                mk_code = f.read()
+            mk_code = re.sub(r'obj-\$\(CONFIG_KSU\)', 'obj-y', mk_code)
+            mk_code = re.sub(r'obj-\$\(CONFIG_KERNEL_SU\)', 'obj-y', mk_code)
+            with open(path_ksu_makefile, "w") as f:
+                f.write(mk_code)
+            print("[+] Patched drivers/kernelsu/Makefile to obj-y successfully")
+
+        # 2. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith(".c") or file.endswith(".h"):
@@ -63,7 +74,6 @@ jobs:
                         code = re.sub(r'avc_has_perm\s*\(([^)]+)\)', patch_avc, code)
                         modified = True
 
-                    # Safely patch is_selinux_disabled macro definition without syntax corruption
                     if "is_selinux_disabled" in code:
                         code = re.sub(r'#define\s+is_selinux_disabled\s*\([^)]*\).*', '#define is_selinux_disabled() 0', code)
                         modified = True
@@ -71,9 +81,8 @@ jobs:
                     if modified:
                         with open(filepath, "w") as f:
                             f.write(code)
-                        print(f"[+] Patched file safely: {filepath}")
 
-        # 2. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
+        # 3. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
         path_selinux = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(path_selinux):
             with open(path_selinux, "r") as f:
@@ -89,7 +98,7 @@ jobs:
             with open(path_selinux, "w") as f:
                 f.write(code)
 
-        # 3. Patch rules.c for selinux_status_update_policyload and policydb declaration
+        # 4. Patch rules.c for selinux_status_update_policyload and policydb declaration
         path_rules = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(path_rules):
             with open(path_rules, "r") as f:
@@ -104,7 +113,7 @@ jobs:
             with open(path_rules, "w") as f:
                 f.write(rules_code)
 
-        # 4. Export policydb globally in kernel SELinux source code (security/selinux/) to resolve undefined symbol
+        # 5. Export policydb globally in kernel SELinux source code
         for root, dirs, files in os.walk("security/selinux"):
             for file in files:
                 if file.endswith(".c"):
@@ -117,7 +126,6 @@ jobs:
                         if new_sec_code != sec_code:
                             with open(filepath, "w") as f:
                                 f.write(new_sec_code)
-                            print(f"[+] Successfully exported policydb globally in {filepath}")
 
         print("[+] Python precise patching & exporting completed successfully!")
         EOF
