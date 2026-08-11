@@ -38,7 +38,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying robust Python patches and weak hooks fallback..."
+        echo "[-] Applying robust Python patches and fully-typed weak hooks fallback..."
         python3 -c '
         import os, re
         for r, ds, fs in os.walk("drivers/kernelsu"):
@@ -72,7 +72,7 @@ jobs:
             if "static inline u32 current_sid(void)" in c:
                 c = c.replace("static inline u32 current_sid(void)", "static inline u32 ksu_current_sid(void)")
                 c = c.replace("current_sid()", "ksu_current_sid()")
-            with open(ps, "w") as fh: fh.write(c)
+            with open(ps, "w") as fh: c = fh.write(c)
 
         pr = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(pr):
@@ -80,12 +80,12 @@ jobs:
             rc = rc.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             rc = rc.replace("selinux_status_update_policyload( 0 )", "selinux_status_update_policyload(&selinux_state, 0)")
             
-            wp = "\n#ifndef __KSU_ALL_WEAK_DEFS_H__\n#define __KSU_ALL_WEAK_DEFS_H__\n__attribute__((weak)) struct policydb policydb;\n__attribute__((weak)) int selinux_enforcing;\n__attribute__((weak)) bool ksu_vfs_read_hook(void *file, char __user *buf, size_t count, loff_t *pos) { return false; }\n__attribute__((weak)) void ksu_handle_vfs_read(void *file, char __user *buf, size_t count, loff_t *pos) {}\n__attribute__((weak)) bool ksu_execveat_hook(int *fd, struct filename **filename, void *argv, void *envp, int *flags) { return false; }\n__attribute__((weak)) void ksu_handle_execveat_sucompat(int *fd, struct filename **filename, void *argv, void *envp, int *flags) {}\n__attribute__((weak)) int ksu_security_context_to_sid(void *scontext, u32 slen, u32 *sid) { return -1; }\n__attribute__((weak)) int ksu_security_sid_to_context(u32 sid, void **scontext, u32 *slen) { return -1; }\n__attribute__((weak)) int ksu_security_context_str_to_sid(void *scontext, u32 *sid) { return -1; }\n__attribute__((weak)) int ksu_security_compute_av_user(u32 ssid, u32 tsid, u16 tclass, u32 requested, void *avd) { return -1; }\n#endif\n"
+            wp = "\n#ifndef __KSU_ALL_WEAK_DEFS_H__\n#define __KSU_ALL_WEAK_DEFS_H__\n#include <linux/types.h>\n#include <linux/stddef.h>\n#include <linux/types.h>\n#include <linux/fs.h>\n__attribute__((weak)) struct policydb policydb;\n__attribute__((weak)) int selinux_enforcing;\n__attribute__((weak)) bool ksu_vfs_read_hook(void *file, char __user *buf, size_t count, loff_t *pos) { return false; }\n__attribute__((weak)) void ksu_handle_vfs_read(void *file, char __user *buf, size_t count, loff_t *pos) {}\n__attribute__((weak)) bool ksu_execveat_hook(int *fd, struct filename **filename, void *argv, void *envp, int *flags) { return false; }\n__attribute__((weak)) void ksu_handle_execveat_sucompat(int *fd, struct filename **filename, void *argv, void *envp, int *flags) {}\n__attribute__((weak)) int ksu_security_context_to_sid(void *scontext, u32 slen, u32 *sid) { return -1; }\n__attribute__((weak)) int ksu_security_sid_to_context(u32 sid, void **scontext, u32 *slen) { return -1; }\n__attribute__((weak)) int ksu_security_context_str_to_sid(void *scontext, u32 *sid) { return -1; }\n__attribute__((weak)) int ksu_security_compute_av_user(u32 ssid, u32 tsid, u16 tclass, u32 requested, void *avd) { return -1; }\n#endif\n"
             if "__KSU_ALL_WEAK_DEFS_H__" not in rc:
                 rc = wp + rc
             with open(pr, "w") as fh: fh.write(rc)
 
-        print("[+] All hooks and missing symbols safely patched with weak fallbacks!")
+        print("[+] All hooks and missing symbols safely patched with proper type headers & weak fallbacks!")
         '
         echo "[+] KittiSU integrated and fully patched!"
 
