@@ -39,7 +39,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux compatibility..."
+        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux & LTO compatibility..."
         python3 - << 'EOF'
         import os
         import re
@@ -165,6 +165,12 @@ jobs:
         CONFIG_KSU_KPROBE_HOOKS=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
+        CONFIG_SECURITY_SELINUX=y
+        CONFIG_SECURITY_SELINUX_DISABLE=y
+        CONFIG_SECURITY_SELINUX_DEVELOP=y
+        CONFIG_LTO=n
+        CONFIG_LTO_CLANG=n
+        CONFIG_THINLTO=n
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
