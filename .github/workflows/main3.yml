@@ -1,80 +1,121 @@
-name: Build and Package Samsung Galaxy A04 Kernel
+name: Build Kernel 4.19 Non-GKI Samsung A04 - SukiSU-Ultra
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
+    - name: Checkout source
+      uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev \
-            libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools \
-            xsltproc yasm zlib1g-dev python3 make xz-utils zip unzip
+    - name: Clean repository
+      run: |
+        git reset --hard || true
+        git clean -fd || true
 
-      - name: Setup SukiSU-Ultra
-        run: |
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    - name: Integrate SukiSU-Ultra & Fix KPM Headers
+      run: |
+        rm -rf drivers/kernelsu
+        git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
+        mkdir -p drivers/kernelsu
+        cp -rf temp_sukisu/kernel/* drivers/kernelsu/
+        rm -rf temp_sukisu
 
-      - name: Setup Toolchains
-        run: |
-          echo "=== استنساخ أدوات التجميع (Toolchains) ==="
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-19.1 gcc64
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git -b lineage-19.1 gcc32
-          git clone --depth=1 https://gitlab.com/LeCmnGendarme/aarch64-linux-android-gla.git -b 14 clang || true
+        # تصحيح مسار تضمين ملف supercall.h آلياً داخل kpm.h لتوافق نواة 4.19
+        if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
+          sed -i 's|#include "uapi/supercall.h"|#include "../uapi/supercall.h"|g' drivers/kernelsu/kpm/kpm.h
+        fi
 
-      - name: Build Kernel
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          
-          export PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/gcc64/bin:${{ github.workspace }}/gcc32/bin:$PATH"
-          
-          OUT_DIR="out"
-          mkdir -p $OUT_DIR
-          
-          echo "=== تنظيف ملفات النظام القديمة ==="
-          make O=$OUT_DIR mrproper
-          
-          echo "=== تطبيق ملف التكوين (Defconfig) ==="
-          make O=$OUT_DIR rsuntk-a04_defconfig
-          
-          echo "=== بدء تجميع النواة ==="
-          make -j$(nproc --all) \
-            O=$OUT_DIR \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+        fi
 
-      - name: Package with AnyKernel3
-        run: |
-          echo "=== استنساخ مستودع AnyKernel3 المخصص للهاتف ==="
-          git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
-          
-          echo "=== نسخ ملفات النواة الناتجة إلى مجلد AnyKernel3 ==="
-          cp out/arch/arm64/boot/Image AnyKernel3/
-          # إذا كانت هناك ملفات dtb أو dtbo مطلوبة:
-          [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img AnyKernel3/
-          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img AnyKernel3/
-          
-          echo "=== ضغط الملفات لتوليد ملف التفليش النهائي ==="
-          cd AnyKernel3
-          zip -r9 ../Galaxy-A04-SukiSU-Flashable.zip * -x ".git*" README.md LICENSE
+        if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+          sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"\n' drivers/Kconfig || echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
 
-      - name: Upload Flashable Zip Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Galaxy-A04-SukiSU-Flashable-Zip
-          path: Galaxy-A04-SukiSU-Flashable.zip
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc g++ clang python3 \
+          libncurses5-dev ccache make git zip \
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi
+
+    - name: Prepare directories
+      run: mkdir -p toolchain/gcc toolchain/clang
+
+    - name: Download GCC toolchain
+      run: |
+        cd toolchain/gcc
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        tar -xf gcc.tar.xz -C ./
+
+    - name: Download Clang r383902 (Compatible with Kernel 4.19)
+      run: |
+        cd toolchain/clang
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        mkdir -p host/linux-x86/clang-r383902
+        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+
+    - name: Export environment variables
+      run: |
+        echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+        echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
+        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "KCFLAGS=-w" >> $GITHUB_ENV
+        echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
+        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+
+    - name: Build Non-GKI Kernel 4.19
+      run: |
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          rsuntk-a04_defconfig
+
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        fi
+
+        cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_IKHEADERS=n
+        CONFIG_KSU=y
+        CONFIG_KPM=y
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        EOT
+
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
+
+    - name: Package with AnyKernel3-a04
+      run: |
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
+        zip -r9 ../A04-Kernel4.19-SukiSU-Ultra-AnyKernel3.zip * -x .git README.md LICENSE
+
+    - name: Upload kernel artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: A04-Kernel4.19-SukiSU-Ultra-Flashable-Zip
+        path: A04-Kernel4.19-SukiSU-Ultra-AnyKernel3.zip
