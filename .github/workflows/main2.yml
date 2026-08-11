@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Universal Recursive Kbuild & Deep SELinux Patches
+    - name: Clean repository and setup ReSukiSU with Guaranteed Unconditional Recursive Compilation & Hooks
       run: |
         git reset --hard || true
         
@@ -24,25 +24,23 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 3. إنشاء نظام Kbuild شامل وتلقائي لكل مجلد فرعي لضمان تجميع كافة ملفات ReSukiSU وربطها في vmlinux
+        # 3. إنشاء نظام بناء Kbuild تداعي ومطلق (Unconditional Recursive Kbuild) لضمان تجميع كل ملفات ReSukiSU ودوالها بدون استثناء
         rm -f drivers/kernelsu/Kbuild drivers/kernelsu/Makefile
         
         cat << 'EOF' > drivers/kernelsu/Kbuild
-        ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1
+        ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1 -DCONFIG_KSU_SUSFS=1
         ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion
+        ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-frame-address
 
-        obj-y += $(patsubst %.c,%.o,$(wildcard *.c))
+        obj-y := $(patsubst %.c,%.o,$(wildcard *.c))
+        obj-y += core/
+        obj-y += selinux/
+        obj-y += feature/
+        obj-y += manager/
         EOF
 
-        for sub in core selinux feature manager; do
-          if [ -d "drivers/kernelsu/$sub" ]; then
-            echo "obj-y += $sub/" >> drivers/kernelsu/Kbuild
-          fi
-        done
-
         find drivers/kernelsu -type d | while read dir; do
-          if [ ! -f "$dir/Kbuild" ] && [ ! -f "$dir/Makefile" ]; then
+          if [ "$dir" != "drivers/kernelsu" ]; then
             echo "obj-y := \$(patsubst %.c,%.o,\$(wildcard *.c))" > "$dir/Kbuild"
           fi
         done
@@ -70,23 +68,6 @@ jobs:
         if [ -f "$RULES_FILE" ]; then
           sed -i 's/selinux_status_update_policyload(0)/selinux_status_update_policyload(\&selinux_state, 0)/g' "$RULES_FILE"
           sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
-        fi
-
-        # 5. حقن الـ Manual Hooks في ملفات النظام الأساسية لنواة 4.19 (exec.c & read_write.c)
-        EXEC_FILE="fs/exec.c"
-        if [ -f "$EXEC_FILE" ] && ! grep -q "ksu_execveat_hook" "$EXEC_FILE"; then
-          sed -i '/do_execveat_common(/a \    ksu_execveat_hook(&fd, &filename, &argv, &envp, &flags);' "$EXEC_FILE" || true
-          sed -i '/return retval;/i \    ksu_handle_execveat_sucompat(current, &filename, &argv, &envp, flags);' "$EXEC_FILE" || true
-        fi
-
-        RW_FILE="fs/read_write.c"
-        if [ -f "$RW_FILE" ] && ! grep -q "ksu_vfs_read_hook" "$RW_FILE"; then
-          sed -i '/ssize_t vfs_read(/a \    ksu_vfs_read_hook(file, buf, count, pos);' "$RW_FILE" || true
-          sed -i '/ssize_t vfs_read(/a \    if (ksu_handle_vfs_read(file, buf, count, pos)) return 0;' "$RW_FILE" || true
-        fi
-
-        if [ -f "drivers/Kconfig" ] && ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
 
         if [ -f "drivers/Makefile" ] && ! grep -q "kernelsu" drivers/Makefile; then
