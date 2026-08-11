@@ -48,8 +48,9 @@ jobs:
         if os.path.exists(path_hide):
             with open(path_hide, "r") as f:
                 content = f.read()
-            content = content.replace("avc_has_perm(current_sid(),", "avc_has_perm(&selinux_state, current_sid(),")
-            content = content.replace("avc_has_perm(mysid,", "avc_has_perm(&selinux_state, mysid,")
+            if "&selinux_state" not in content:
+                content = content.replace("avc_has_perm(current_sid(),", "avc_has_perm(&selinux_state, current_sid(),")
+                content = content.replace("avc_has_perm(mysid,", "avc_has_perm(&selinux_state, mysid,")
             with open(path_hide, "w") as f:
                 f.write(content)
 
