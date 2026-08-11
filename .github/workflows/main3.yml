@@ -33,49 +33,41 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. معالجة وتطهير دوال iopoll و remap_file_range غير المدعومة في نواة 4.19 بدقة عالية عبر تتبع الأقواس
+        # 3. تطهير وإزالة دوال واستخدامات iopoll و remap_file_range غير المدعومة في نواة 4.19 عبر تتبع دقيق للأقواس
         python3 -c '
         import os
+
         path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(path):
             with open(path, "r") as f:
-                code = f.read()
+                lines = f.readlines()
 
-            def remove_function(code, func_name):
-                pos = code.find(func_name)
-                while pos != -1:
-                    start = code.rfind("\n", 0, pos)
-                    if start == -1:
-                        start = 0
-                    else:
-                        start += 1
-                    brace_pos = code.find("{", pos)
-                    if brace_pos == -1:
-                        break
-                    depth = 1
-                    i = brace_pos + 1
-                    while i < len(code) and depth > 0:
-                        if code[i] == "{":
-                            depth += 1
-                        elif code[i] == "}":
-                            depth -= 1
-                        i += 1
-                    if depth == 0:
-                        code = code[:start] + code[i:]
-                    else:
-                        break
-                    pos = code.find(func_name)
-                return code
-
-            code = remove_function(code, "ksu_wrapper_iopoll")
-            code = remove_function(code, "ksu_wrapper_remap_file_range")
-
-            lines = code.splitlines()
             new_lines = []
-            for line in lines:
-                if "ops.iopoll" in line or "ops.remap_file_range" in line:
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if "ksu_wrapper_iopoll" in line or "ksu_wrapper_remap_file_range" in line:
+                    brace_count = 0
+                    found_start = False
+                    while i < len(lines):
+                        if "{" in lines[i]:
+                            brace_count += lines[i].count("{") - lines[i].count("}")
+                            found_start = True
+                            i += 1
+                            break
+                        i += 1
+                    if found_start:
+                        while i < len(lines) and brace_count > 0:
+                            brace_count += lines[i].count("{") - lines[i].count("}")
+                            i += 1
                     continue
-                new_lines.append(line + "\n")
+                
+                if "ops.iopoll" in line or "ops.remap_file_range" in line:
+                    i += 1
+                    continue
+                    
+                new_lines.append(line)
+                i += 1
 
             with open(path, "w") as f:
                 f.writelines(new_lines)
