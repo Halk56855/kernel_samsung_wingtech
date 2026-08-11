@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU robustly
+    - name: Clean repository and setup ReSukiSU with SELinux Fixes
       run: |
         git reset --hard || true
         
@@ -19,7 +19,7 @@ jobs:
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي وضمان توافق Kconfig و Makefile بنظام Python الآمن
+        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux (flask.h) بنظام Python الآمن
         python3 - << 'EOF'
         import os
         import shutil
@@ -50,12 +50,21 @@ jobs:
                         shutil.copy2(src_kconfig, os.path.join(ksu_dir, "Kconfig"))
                         break
 
-            # تحييد فحص الـ Submodule والـ errors في Kbuild لمنع توقف البناء
+            # تعديل Kbuild لحل مشكلة Submodule وتضمين مسارات SELinux (flask.h) إجبارياً
             kbuild_path = os.path.join(ksu_dir, "Kbuild")
             if os.path.exists(kbuild_path):
                 with open(kbuild_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 content = content.replace("$(error", "$(warning")
+                
+                # إضافة مسارات البحث عن ملفات SELinux لتجنب خطأ عدم العثور على flask.h
+                selinux_includes = """
+ccflags-y += -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
+ccflags-y += -I$(objtree)/security/selinux
+"""
+                if "security/selinux" not in content:
+                    content = selinux_includes + "\n" + content
+
                 with open(kbuild_path, "w", encoding="utf-8") as f:
                     f.write(content)
 
