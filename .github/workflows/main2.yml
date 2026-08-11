@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU safely
+    - name: Clean repository and setup ReSukiSU safely with SELinux Fix
       run: |
         git reset --hard || true
         
@@ -19,7 +19,7 @@ jobs:
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux بأوامر شل آمنة وخالية من أخطاء التنسيق
+        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux
         if [ -d "drivers/kernelsu/kernel" ]; then
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
@@ -34,6 +34,13 @@ jobs:
         fi
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
+
+        # 3. حل جذري ونهائي لمشكلة معاملات avc_has_perm الناقصة في ملف selinux_hide.c لنواة 4.19
+        SEL_HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
+        if [ -f "$SEL_HIDE_FILE" ]; then
+          sed -i 's/avc_has_perm(current_sid()/avc_has_perm(\&selinux_state, current_sid()/g' "$SEL_HIDE_FILE"
+          sed -i 's/avc_has_perm(mysid/avc_has_perm(\&selinux_state, mysid/g' "$SEL_HIDE_FILE"
+        fi
 
         if [ -f "drivers/Kconfig" ] && ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
