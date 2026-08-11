@@ -74,8 +74,9 @@ jobs:
                 f.write(content)
         '
 
-        # 5. ضمان العثور على ترويسات uapi (مثل mount.h) عبر نسخها إلى مجلد الترويسات المحلي
+        # 5. ضمان العثور على ترويسات uapi (مثل mount.h) عبر إزالة أي تعارض ومسح المجلد القديم إن وجد ثم نسخه
         if [ -d "drivers/kernelsu/uapi" ]; then
+          rm -rf drivers/kernelsu/include/uapi
           mkdir -p drivers/kernelsu/include/uapi
           cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/include/uapi/
         fi
