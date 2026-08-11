@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU safely with Deep SELinux & Symbol Flags
+    - name: Clean repository and setup ReSukiSU safely with Complete Manual Hooks & SELinux Patches
       run: |
         git reset --hard || true
         
@@ -19,7 +19,7 @@ jobs:
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux ورافعات التكوين الإجبارية
+        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux ورافعات التكوين
         if [ -d "drivers/kernelsu/kernel" ]; then
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
@@ -35,7 +35,7 @@ jobs:
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري ونهائي لأخطاء تطابق SELinux وتواقيع الدوال ومعاملات policydb ورموز المؤشرات في نواة 4.19
+        # 3. حل جذري لأخطاء تطابق SELinux وتواقيع الدوال ومعاملات policydb ورموز المؤشرات في نواة 4.19
         SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
         if [ -f "$SEL_DEFS_FILE" ]; then
           sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
@@ -56,6 +56,20 @@ jobs:
         if [ -f "$RULES_FILE" ]; then
           sed -i 's/selinux_status_update_policyload(0)/selinux_status_update_policyload(\&selinux_state, 0)/g' "$RULES_FILE"
           sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
+        fi
+
+        # 4. حقن الـ Manual Hooks المفقودة في ملفات النظام الأساسية لنواة 4.19 (exec.c & read_write.c)
+        EXEC_FILE="fs/exec.c"
+        if [ -f "$EXEC_FILE" ] && ! grep -q "ksu_execveat_hook" "$EXEC_FILE"; then
+          sed -i '/do_execveat_common(3/a \    ksu_execveat_hook(&fd, &filename, &argv, &envp, &flags);' "$EXEC_FILE" || \
+          sed -i '/do_execveat_common(/a \    ksu_execveat_hook(&fd, &filename, &argv, &envp, &flags);' "$EXEC_FILE" || true
+          sed -i '/return retval;/i \    ksu_handle_execveat_sucompat(current, &filename, &argv, &envp, flags);' "$EXEC_FILE" || true
+        fi
+
+        RW_FILE="fs/read_write.c"
+        if [ -f "$RW_FILE" ] && ! grep -q "ksu_vfs_read_hook" "$RW_FILE"; then
+          sed -i '/ssize_t vfs_read(/a \    ksu_vfs_read_hook(file, buf, count, pos);' "$RW_FILE" || true
+          sed -i '/ssize_t vfs_read(/a \    if (ksu_handle_vfs_read(file, buf, count, pos)) return 0;' "$RW_FILE" || true
         fi
 
         if [ -f "drivers/Kconfig" ] && ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
