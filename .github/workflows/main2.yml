@@ -80,7 +80,7 @@ jobs:
           bc bison flex libssl-dev gcc g++ clang python3 \
           libncurses5-dev ccache make git zip \
           wget xz-utils device-tree-compiler libfdt-dev \
-          gcc-arm-linux-gnueabi build-essential
+          gcc-arm-linux-gnueabi build-essential lld
 
     - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
@@ -103,15 +103,15 @@ jobs:
         GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu"
         CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902"
 
-        echo "CROSS_COMPILE=$GCC_PATH/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        # إضافة مسارات Clang و GCC إلى متغير النظام PATH لضمان توفر ld.lld و clang
+        echo "PATH=$CLANG_PATH/bin:$GCC_PATH/bin:$PATH" >> $GITHUB_ENV
+        echo "CROSS_COMPILE=aarch64-none-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=$CLANG_PATH/bin/clang" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "SUBARCH=arm64" >> $GITHUB_ENV
-        # إضافة رايات منع توقف البناء بسبب التحذيرات الصارمة في المترجمات الحديثة مع نواة 4.19
         echo "KCFLAGS=-w -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion" >> $GITHUB_ENV
-        echo "LD=$GCC_PATH/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Build kernel
