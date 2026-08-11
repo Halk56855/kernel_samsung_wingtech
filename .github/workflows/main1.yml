@@ -110,7 +110,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
@@ -141,6 +141,10 @@ jobs:
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
+
+        make -C $(pwd) O=$(pwd)/out prepare
+        make -C $(pwd) O=$(pwd)/out scripts
+        make -C $(pwd) O=$(pwd)/out security/
 
         make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
 
