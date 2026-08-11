@@ -39,8 +39,8 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying robust Python patches for Samsung 4.19 SELinux, weak policydb fallback & forced obj-y compilation..."
-        python3 - << 'EOF'
+        echo "[-] Creating robust Python patching script..."
+        cat << 'PYTHON_SCRIPT' > patch_ksu.py
         import os
         import re
 
@@ -108,7 +108,6 @@ jobs:
             rules_code = rules_code.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             rules_code = rules_code.replace("selinux_status_update_policyload( 0 )", "selinux_status_update_policyload(&selinux_state, 0)")
             
-            # Inject weak definitions to eliminate undefined symbol linker errors permanently
             weak_patch = """
 #ifndef __KSU_WEAK_DEFS_H__
 #define __KSU_WEAK_DEFS_H__
@@ -123,8 +122,10 @@ __attribute__((weak)) int selinux_enforcing;
                 f.write(rules_code)
 
         print("[+] Python precise patching & weak symbol fallback injection completed successfully!")
-        EOF
-        
+        PYTHON_SCRIPT
+
+        python3 patch_ksu.py
+        rm patch_ksu.py
         echo "[+] KittiSU integrated and fully patched!"
 
     - name: Install build dependencies
