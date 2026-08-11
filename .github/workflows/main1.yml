@@ -39,12 +39,12 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux & LTO compatibility..."
+        echo "[-] Applying precise Python patches for Samsung 4.19 SELinux & LTO compatibility..."
         python3 - << 'EOF'
         import os
         import re
 
-        # 1. Patch all avc_has_perm calls across all KittiSU source files for Non-GKI 4.19 compatibility
+        # 1. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith(".c") or file.endswith(".h"):
@@ -63,16 +63,15 @@ jobs:
                         code = re.sub(r'avc_has_perm\s*\(([^)]+)\)', patch_avc, code)
                         modified = True
 
-                    # Patch is_selinux_disabled macro definition
+                    # Safely patch is_selinux_disabled macro definition without syntax corruption
                     if "is_selinux_disabled" in code:
-                        code = code.replace("#define is_selinux_disabled() (selinux_disabled)", "#define is_selinux_disabled() 0")
-                        code = code.replace("is_selinux_disabled()", "0")
+                        code = re.sub(r'#define\s+is_selinux_disabled\s*\([^)]*\).*', '#define is_selinux_disabled() 0', code)
                         modified = True
 
                     if modified:
                         with open(filepath, "w") as f:
                             f.write(code)
-                        print(f"[+] Patched file: {filepath}")
+                        print(f"[+] Patched file safely: {filepath}")
 
         # 2. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
         path_selinux = "drivers/kernelsu/selinux/selinux.c"
@@ -105,7 +104,7 @@ jobs:
             with open(path_rules, "w") as f:
                 f.write(rules_code)
 
-        print("[+] Python patching completed successfully for all files!")
+        print("[+] Python precise patching completed successfully!")
         EOF
         
         echo "[+] KittiSU integrated and fully patched!"
