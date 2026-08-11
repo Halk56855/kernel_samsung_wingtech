@@ -16,17 +16,10 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate KittiSU & Kernel 4.19 Ultimate Compatibility Fixes
+    - name: Integrate KittiSU via Official Setup Script & Kernel 4.19 Fixes
       run: |
-        rm -rf drivers/kernelsu
-        mkdir -p temp_kittisu
-        curl -sL https://github.com/KittiSU/KittiSU/archive/refs/heads/main.tar.gz | tar -xz -C temp_kittisu --strip-components=1
-        
-        # 1. نسخ نواة KittiSU الأساسية
-        mkdir -p drivers/kernelsu
-        cp -rf temp_kittisu/* drivers/kernelsu/
-        
-        rm -rf temp_kittisu
+        # 1. دمج KittiSU تلقائياً باستخدام السكربت الرسمي المباشر
+        curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash -s drivers/kernelsu
 
         # 2. توسيع مسارات البحث للمترجم داخل ميكفيل KittiSU لضمان قراءة هيدرز SELinux والمجلدات الداخلية للنواة
         if [ -f "drivers/kernelsu/Makefile" ]; then
