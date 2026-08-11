@@ -39,7 +39,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying precise Python patches for Samsung 4.19 SELinux & LTO compatibility..."
+        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux, policydb & LTO compatibility..."
         python3 - << 'EOF'
         import os
         import re
@@ -104,7 +104,22 @@ jobs:
             with open(path_rules, "w") as f:
                 f.write(rules_code)
 
-        print("[+] Python precise patching completed successfully!")
+        # 4. Export policydb globally in kernel SELinux source code (security/selinux/) to resolve undefined symbol
+        for root, dirs, files in os.walk("security/selinux"):
+            for file in files:
+                if file.endswith(".c"):
+                    filepath = os.path.join(root, file)
+                    with open(filepath, "r") as f:
+                        sec_code = f.read()
+                    
+                    if "struct policydb policydb" in sec_code and "static" in sec_code:
+                        new_sec_code = sec_code.replace("static struct policydb policydb", "struct policydb policydb")
+                        if new_sec_code != sec_code:
+                            with open(filepath, "w") as f:
+                                f.write(new_sec_code)
+                            print(f"[+] Successfully exported policydb globally in {filepath}")
+
+        print("[+] Python precise patching & exporting completed successfully!")
         EOF
         
         echo "[+] KittiSU integrated and fully patched!"
