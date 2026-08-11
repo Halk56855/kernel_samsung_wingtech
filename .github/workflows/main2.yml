@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Guaranteed Unconditional Recursive Compilation & Hooks
+    - name: Clean repository and setup ReSukiSU with Clean Unindented Kbuild Syntax & Hooks
       run: |
         git reset --hard || true
         
@@ -24,24 +24,32 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 3. إنشاء نظام بناء Kbuild تداعي ومطلق (Unconditional Recursive Kbuild) لضمان تجميع كل ملفات ReSukiSU ودوالها بدون استثناء
+        # 3. إنشاء نظام بناء Kbuild نظيف بدون مسافات بادئة لضمان تجميع كافة ملفات ReSukiSU وربطها في vmlinux
         rm -f drivers/kernelsu/Kbuild drivers/kernelsu/Makefile
         
         cat << 'EOF' > drivers/kernelsu/Kbuild
-        ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1 -DCONFIG_KSU_SUSFS=1
-        ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-frame-address
+ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1 -DCONFIG_KSU_SUSFS=1
+ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-frame-address
 
-        obj-y := $(patsubst %.c,%.o,$(wildcard *.c))
-        obj-y += core/
-        obj-y += selinux/
-        obj-y += feature/
-        obj-y += manager/
-        EOF
+obj-y := $(patsubst %.c,%.o,$(wildcard *.c))
+obj-y += core/
+obj-y += selinux/
+obj-y += feature/
+obj-y += 
+EOF
+
+        for sub in core selinux feature manager; do
+          if [ -d "drivers/kernelsu/$sub" ]; then
+            echo "obj-y := \$(patsubst %.c,%.o,\$(wildcard *.c))" > "drivers/kernelsu/$sub/Kbuild"
+          fi
+        done
 
         find drivers/kernelsu -type d | while read dir; do
           if [ "$dir" != "drivers/kernelsu" ]; then
-            echo "obj-y := \$(patsubst %.c,%.o,\$(wildcard *.c))" > "$dir/Kbuild"
+            if [ ! -f "$dir/Kbuild" ] && [ ! -f "$dir/Makefile" ]; then
+              echo "obj-y := \$(patsubst %.c,%.o,\$(wildcard *.c))" > "$dir/Kbuild"
+            fi
           fi
         done
 
@@ -173,5 +181,5 @@ jobs:
     - name: Upload Flashable Zip Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-AnyKernel3
+        name: A04-ResukiSU-AnyKernel3
         path: A04-ReSukiSU-AnyKernel3.zip
