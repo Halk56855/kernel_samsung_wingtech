@@ -129,8 +129,8 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        mkdir -p out/security/selinux
-        make -C $(pwd) O=$(pwd)/out security/selinux/flask.h security/selinux/avtab.h || true
+        # توليد كافة ملفات الهيدر وملفات SELinux الضرورية (مثل flask.h) قبل بناء الـ drivers
+        make -C $(pwd) O=$(pwd)/out prepare
 
         make -C $(pwd) O=$(pwd)/out \
           LLVM=1 \
