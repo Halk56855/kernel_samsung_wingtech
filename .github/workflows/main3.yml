@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Perfect Header Structure
+    - name: Integrate SukiSU-Ultra & Ultimate KPM Header Fixes
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -24,27 +24,22 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # إنشاء مجلدات uapi الفرعية بالشكل الهندسي الصحيح الذي يتطلبه kpm و policy
-        mkdir -p drivers/kernelsu/uapi
-        mkdir -p drivers/kernelsu/kpm/uapi
-        mkdir -p drivers/kernelsu/policy/uapi
+        # نسخ كافة ملفات الهيدرز مباشرة داخل مجلد kpm لتجنب أي أخطاء في البحث أو النطاق
+        find drivers/kernelsu -name "*.h" -exec cp -f {} drivers/kernelsu/kpm/ \;
 
-        # البحث والنسخ التلقائي لملفات الهيدرز إلى مجلداتها الفرعية بدقة تامة
-        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/kpm/uapi/ \;
-        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
-        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/policy/uapi/ \;
-        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
-
-        # إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # ضمان تضمين supercall.h وتصحيح توافق access_ok آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
+          if ! grep -q '#include "supercall.h"' drivers/kernelsu/kpm/kpm.c; then
+            sed -i '1i #include "supercall.h"' drivers/kernelsu/kpm/kpm.c
+          fi
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط دون المساس بملفات النواة الأصلية
+        # توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط دون المساس بالنواة الأصلية
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy -I$(src)/kpm/uapi -I$(src)/policy/uapi' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
