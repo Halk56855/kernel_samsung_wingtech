@@ -39,12 +39,12 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying robust Python regex patches for Samsung 4.19 SELinux compatibility..."
+        echo "[-] Applying comprehensive Python patches for Samsung 4.19 SELinux compatibility..."
         python3 - << 'EOF'
         import os
         import re
 
-        # Robustly patch all avc_has_perm calls across all KittiSU source files for Non-GKI 4.19 compatibility
+        # 1. Patch all avc_has_perm calls across all KittiSU source files for Non-GKI 4.19 compatibility
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith(".c"):
@@ -65,7 +65,7 @@ jobs:
                                 f.write(new_code)
                             print(f"[+] Patched avc_has_perm in {filepath}")
 
-        # Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
+        # 2. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
         path_selinux = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(path_selinux):
             with open(path_selinux, "r") as f:
@@ -80,7 +80,23 @@ jobs:
                 
             with open(path_selinux, "w") as f:
                 f.write(code)
-        print("[+] Python patching completed successfully!")
+
+        # 3. Patch rules.c for selinux_status_update_policyload and policydb declaration
+        path_rules = "drivers/kernelsu/selinux/rules.c"
+        if os.path.exists(path_rules):
+            with open(path_rules, "r") as f:
+                rules_code = f.read()
+            
+            rules_code = rules_code.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            rules_code = rules_code.replace("selinux_status_update_policyload( 0 )", "selinux_status_update_policyload(&selinux_state, 0)")
+            
+            if "extern struct policydb policydb;" not in rules_code:
+                rules_code = "extern struct policydb policydb;\n" + rules_code
+                
+            with open(path_rules, "w") as f:
+                f.write(rules_code)
+
+        print("[+] Python patching completed successfully for all files!")
         EOF
         
         echo "[+] KittiSU integrated and fully patched!"
