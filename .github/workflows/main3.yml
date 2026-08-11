@@ -25,7 +25,7 @@ jobs:
         mkdir -p drivers/kernelsu
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         
-        # 2. نسخ مجلد uapi الجذري الذي يحتوي على تعريفات KPM الكاملة
+        # 2. نسخ مجلد uapi الجذري
         if [ -d "temp_sukisu/uapi" ]; then
           mkdir -p drivers/kernelsu/uapi
           cp -rf temp_sukisu/uapi/* drivers/kernelsu/uapi/
@@ -74,7 +74,13 @@ jobs:
                 f.write(content)
         '
 
-        # 5. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
+        # 5. ضمان العثور على ترويسات uapi (مثل mount.h) عبر نسخها إلى مجلد الترويسات المحلي
+        if [ -d "drivers/kernelsu/uapi" ]; then
+          mkdir -p drivers/kernelsu/include/uapi
+          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/include/uapi/
+        fi
+
+        # 6. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_LINUX_PGTABLE_H
@@ -84,17 +90,17 @@ jobs:
         #endif
         EOF
 
-        # 6. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 7. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 7. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 8. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 8. ضبط مسارات البحث للمترجم بدقة لضمان قراءة مجلد uapi والهيدرز المحلية
+        # 9. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية
         if [ -f "drivers/kernelsu/Makefile" ]; then
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
           echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
