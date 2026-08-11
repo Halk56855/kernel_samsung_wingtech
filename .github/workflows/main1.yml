@@ -19,7 +19,8 @@ jobs:
     - name: Integrate KittiSU & Kernel 4.19 Ultimate Compatibility Fixes
       run: |
         rm -rf drivers/kernelsu
-        git clone https://github.com/KittiSU/KittiSU.git temp_kittisu
+        mkdir -p temp_kittisu
+        curl -sL https://github.com/KittiSU/KittiSU/archive/refs/heads/main.tar.gz | tar -xz -C temp_kittisu --strip-components=1
         
         # 1. نسخ نواة KittiSU الأساسية
         mkdir -p drivers/kernelsu
