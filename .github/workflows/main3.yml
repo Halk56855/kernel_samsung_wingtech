@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Kernel 4.19 Compatibility Patches
+    - name: Integrate SukiSU-Ultra & Kernel 4.19 Compatibility Fixes
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -33,19 +33,29 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 3. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
+        mkdir -p drivers/kernelsu/include/linux
+        cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
+        #ifndef _KSU_LINUX_PGTABLE_H
+        #define _KSU_LINUX_PGTABLE_H
+        #include <linux/mm.h>
+        #include <asm/pgtable.h>
+        #endif
+        EOF
+
+        # 4. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 4. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 5. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 5. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط
+        # 6. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط لضمان قراءة الهيدرز المحلية والنواة
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
