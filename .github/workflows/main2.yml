@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU safely with SELinux Fix
+    - name: Clean repository and setup ReSukiSU safely with Deep SELinux Patching
       run: |
         git reset --hard || true
         
@@ -35,7 +35,17 @@ jobs:
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري ونهائي لمشكلة معاملات avc_has_perm الناقصة في ملف selinux_hide.c لنواة 4.19
+        # 3. حل جذري ونهائي لأخطاء تطابق SELinux وتكرار الدوال وتعارض selinux_enforcing في نواة 4.19
+        SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
+        if [ -f "$SEL_DEFS_FILE" ]; then
+          sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
+        fi
+
+        SEL_FILE="drivers/kernelsu/selinux/selinux.c"
+        if [ -f "$SEL_FILE" ]; then
+          sed -i 's/static inline u32 current_sid(void)/static inline u32 ksu_current_sid(void)/g' "$SEL_FILE"
+        fi
+
         SEL_HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
         if [ -f "$SEL_HIDE_FILE" ]; then
           sed -i 's/avc_has_perm(current_sid()/avc_has_perm(\&selinux_state, current_sid()/g' "$SEL_HIDE_FILE"
