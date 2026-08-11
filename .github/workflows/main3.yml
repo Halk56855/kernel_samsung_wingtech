@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Fix KPM Headers
+    - name: Integrate SukiSU-Ultra & Fix Headers
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -64,19 +64,23 @@ jobs:
 
     - name: Export environment variables
       run: |
-        echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        GCC_BIN=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
+        CLANG_BIN=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin
+        
+        echo "CROSS_COMPILE=$GCC_BIN/aarch64-none-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
+        echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "KCFLAGS=-w" >> $GITHUB_ENV
-        echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
+        echo "HOSTCFLAGS=-w" >> $GITHUB_ENV
+        echo "LD=$GCC_BIN/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Build Non-GKI Kernel 4.19
       run: |
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
@@ -96,11 +100,11 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
