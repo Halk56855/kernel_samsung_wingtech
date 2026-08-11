@@ -47,11 +47,12 @@ jobs:
         # 1. Patch all avc_has_perm calls across all KittiSU source files for Non-GKI 4.19 compatibility
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
-                if file.endswith(".c"):
+                if file.endswith(".c") or file.endswith(".h"):
                     filepath = os.path.join(root, file)
                     with open(filepath, "r") as f:
                         code = f.read()
                     
+                    modified = False
                     if "avc_has_perm" in code:
                         def patch_avc(match):
                             args = match.group(1)
@@ -59,11 +60,19 @@ jobs:
                                 return f"avc_has_perm(&selinux_state, {args})"
                             return match.group(0)
                         
-                        new_code = re.sub(r'avc_has_perm\s*\(([^)]+)\)', patch_avc, code)
-                        if new_code != code:
-                            with open(filepath, "w") as f:
-                                f.write(new_code)
-                            print(f"[+] Patched avc_has_perm in {filepath}")
+                        code = re.sub(r'avc_has_perm\s*\(([^)]+)\)', patch_avc, code)
+                        modified = True
+
+                    # Patch is_selinux_disabled macro definition
+                    if "is_selinux_disabled" in code:
+                        code = code.replace("#define is_selinux_disabled() (selinux_disabled)", "#define is_selinux_disabled() 0")
+                        code = code.replace("is_selinux_disabled()", "0")
+                        modified = True
+
+                    if modified:
+                        with open(filepath, "w") as f:
+                            f.write(code)
+                        print(f"[+] Patched file: {filepath}")
 
         # 2. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
         path_selinux = "drivers/kernelsu/selinux/selinux.c"
