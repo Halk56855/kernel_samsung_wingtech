@@ -33,41 +33,38 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. تطهير وإزالة دوال واستخدامات iopoll و remap_file_range غير المدعومة في نواة 4.19 عبر تتبع دقيق للأقواس
+        # 3. إزالة العناصر والدوال غير المدعومة في نواة 4.19 داخل file_wrapper.c نهائياً
         python3 -c '
         import os
 
         path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(path):
             with open(path, "r") as f:
-                lines = f.readlines()
+                content = f.read()
 
+            lines = content.splitlines()
             new_lines = []
-            i = 0
-            while i < len(lines):
-                line = lines[i]
-                if "ksu_wrapper_iopoll" in line or "ksu_wrapper_remap_file_range" in line:
-                    brace_count = 0
-                    found_start = False
-                    while i < len(lines):
-                        if "{" in lines[i]:
-                            brace_count += lines[i].count("{") - lines[i].count("}")
-                            found_start = True
-                            i += 1
-                            break
-                        i += 1
-                    if found_start:
-                        while i < len(lines) and brace_count > 0:
-                            brace_count += lines[i].count("{") - lines[i].count("}")
-                            i += 1
+            skip = False
+            brace_depth = 0
+
+            for line in lines:
+                if any(keyword in line for keyword in ["ksu_wrapper_iopoll", "ksu_wrapper_remap_file_range", "ksu_wrapper_d_dname", "ksu_wrapper_d_release"]):
+                    skip = True
+                    brace_depth = line.count("{") - line.count("}")
+                    if brace_depth <= 0 and "{" not in line:
+                        skip = False
                     continue
-                
-                if "ops.iopoll" in line or "ops.remap_file_range" in line:
-                    i += 1
+
+                if skip:
+                    brace_depth += line.count("{") - line.count("}")
+                    if brace_depth <= 0:
+                        skip = False
                     continue
-                    
-                new_lines.append(line)
-                i += 1
+
+                if any(op in line for op in ["ops.iopoll", "ops.remap_file_range", ".d_dname", ".d_release"]):
+                    continue
+
+                new_lines.append(line + "\n")
 
             with open(path, "w") as f:
                 f.writelines(new_lines)
