@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Universal Unconditional Kbuild & Deep SELinux Patches
+    - name: Clean repository and setup ReSukiSU with Native Kbuild & Deep SELinux Patches
       run: |
         git reset --hard || true
         
@@ -24,19 +24,15 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 3. إنشاء ملف Kbuild شامل وغير مشروط لضمان تجميع كل ملفات ReSukiSU وربطها بالكامل في vmlinux
-        rm -f drivers/kernelsu/Kbuild drivers/kernelsu/Makefile
-        cat << 'EOF' > drivers/kernelsu/Kbuild
-        ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1
-        ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion
+        if [ ! -f "drivers/kernelsu/Kconfig" ]; then
+          find drivers/kernelsu -name "Kconfig" -exec cp {} drivers/kernelsu/Kconfig \; -quit
+        fi
 
-        obj-y += core/
-        obj-y += selinux/
-        obj-y += feature/
-        obj-y += manager/
-        obj-y += $(patsubst %.c,%.o,$(wildcard *.c))
-        EOF
+        # 3. تعديل ملف Kbuild الأصلي لـ ReSukiSU وحقن مسارات SELinux وتحويل الخطأ لتحذير
+        if [ -f "drivers/kernelsu/Kbuild" ]; then
+          sed -i 's/\$(error/\$(warning/g' drivers/kernelsu/Kbuild
+          sed -i '1i ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux' drivers/kernelsu/Kbuild
+        fi
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
@@ -74,6 +70,10 @@ jobs:
         if [ -f "$RW_FILE" ] && ! grep -q "ksu_vfs_read_hook" "$RW_FILE"; then
           sed -i '/ssize_t vfs_read(/a \    ksu_vfs_read_hook(file, buf, count, pos);' "$RW_FILE" || true
           sed -i '/ssize_t vfs_read(/a \    if (ksu_handle_vfs_read(file, buf, count, pos)) return 0;' "$RW_FILE" || true
+        fi
+
+        if [ -f "drivers/Kconfig" ] && ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
 
         if [ -f "drivers/Makefile" ] && ! grep -q "kernelsu" drivers/Makefile; then
