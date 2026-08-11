@@ -165,7 +165,10 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # 4. عملية البناء الرئيسية مدعومة بالـ LLVM ومعايير MTK لضمان النجاح التام مع نظام التراجع التلقائي
+        # 4. التوليد المسبق لملفات SELinux الضرورية (flask.h) لمنع خطأ الفقدان
+        make -C $(pwd) O=$(pwd)/out security/selinux/flask.h || true
+
+        # 5. عملية البناء الرئيسية مدعومة بالـ LLVM ومعايير MTK لضمان النجاح التام مع نظام التراجع التلقائي
         make -C $(pwd) O=$(pwd)/out \
           LLVM=1 \
           LLVM_IAS=1 \
