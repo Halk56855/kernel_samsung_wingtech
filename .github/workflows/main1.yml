@@ -23,7 +23,7 @@ jobs:
         echo "[-] Neutralizing KittiSU strict checks..."
         find KittiSU -name "*.mk" -exec truncate -s 0 {} \; || true
 
-        echo "[-] Patching KittiSU Kbuild to accept direct directory link without errors..."
+        echo "[-] Patching KittiSU Kbuild to accept direct directory link..."
         python3 -c '
         import os
         for root, dirs, files in os.walk("KittiSU"):
@@ -31,10 +31,24 @@ jobs:
                 if f == "Kbuild":
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
-                    # Neutralize submodule/copy error check in Kbuild
                     content = content.replace("error You should use KittiSU as a git submodule", "warning Submodule check bypassed")
                     content = content.replace("error Can\x27t find KittiSU git submodule", "warning Submodule path bypassed")
                     with open(fp, "w") as fh: fh.write(content)
+        '
+
+        echo "[-] Patching selinux_hide.c for Samsung 4.19 avc_has_perm argument compatibility..."
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("KittiSU"):
+            for f in files:
+                if f == "selinux_hide.c":
+                    fp = os.path.join(root, f)
+                    with open(fp, "r") as fh: content = fh.read()
+                    # Fix avc_has_perm calls lacking selinux_state pointer in 4.19 kernels
+                    content = content.replace("avc_has_perm(current_sid()", "avc_has_perm(&selinux_state, current_sid()")
+                    content = content.replace("avc_has_perm(mysid", "avc_has_perm(&selinux_state, mysid")
+                    with open(fp, "w") as fh: fh.write(content)
+                    print(f"[+] Successfully patched {fp}")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
@@ -81,7 +95,7 @@ jobs:
                     c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
                     with open(fp, "w") as fh: fh.write(c)
         '
-        echo "[+] KittiSU successfully integrated as a submodule and linked cleanly!"
+        echo "[+] KittiSU successfully integrated and patched!"
 
     - name: Install build dependencies
       run: |
