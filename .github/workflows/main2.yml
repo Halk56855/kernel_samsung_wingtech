@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU safely with Complete Manual Hooks & SELinux Patches
+    - name: Clean repository and setup ReSukiSU safely with Unconditional Kbuild & Deep SELinux Patches
       run: |
         git reset --hard || true
         
@@ -19,7 +19,7 @@ jobs:
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux ورافعات التكوين
+        # 2. تسوية الهيكل البرمجي وحقن مسارات SELinux وKbuild المشروط
         if [ -d "drivers/kernelsu/kernel" ]; then
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
@@ -30,12 +30,16 @@ jobs:
 
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i 's/\$(error/\$(warning/g' drivers/kernelsu/Kbuild
+          sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Kbuild
+          sed -i 's/obj-\$(CONFIG_KSU_MANUAL_HOOK)/obj-y/g' drivers/kernelsu/Kbuild
+          sed -i '1i CONFIG_KSU := y\nCONFIG_KSU_MANUAL_HOOK := y\n' drivers/kernelsu/Kbuild
+
           printf "ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1\nccflags-y += -Isecurity/selinux\nccflags-y += -Isecurity/selinux/include\nccflags-y += -I\$(srctree)/security/selinux\nccflags-y += -I\$(srctree)/security/selinux/include\nccflags-y += -I\$(objtree)/security/selinux\n\n" | cat - drivers/kernelsu/Kbuild > temp && mv temp drivers/kernelsu/Kbuild
         fi
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري لأخطاء تطابق SELinux وتواقيع الدوال ومعاملات policydb ورموز المؤشرات في نواة 4.19
+        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb ورموز المؤشرات في نواة 4.19
         SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
         if [ -f "$SEL_DEFS_FILE" ]; then
           sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
@@ -58,10 +62,9 @@ jobs:
           sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
         fi
 
-        # 4. حقن الـ Manual Hooks المفقودة في ملفات النظام الأساسية لنواة 4.19 (exec.c & read_write.c)
+        # 4. حقن الـ Manual Hooks في ملفات النظام الأساسية لنواة 4.19 (exec.c & read_write.c)
         EXEC_FILE="fs/exec.c"
         if [ -f "$EXEC_FILE" ] && ! grep -q "ksu_execveat_hook" "$EXEC_FILE"; then
-          sed -i '/do_execveat_common(3/a \    ksu_execveat_hook(&fd, &filename, &argv, &envp, &flags);' "$EXEC_FILE" || \
           sed -i '/do_execveat_common(/a \    ksu_execveat_hook(&fd, &filename, &argv, &envp, &flags);' "$EXEC_FILE" || true
           sed -i '/return retval;/i \    ksu_handle_execveat_sucompat(current, &filename, &argv, &envp, flags);' "$EXEC_FILE" || true
         fi
