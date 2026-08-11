@@ -24,9 +24,16 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # تصحيح مسار تضمين ملف supercall.h آلياً داخل kpm.h لتوافق نواة 4.19
+        # إنشاء مجلد uapi وضمان وجود ملف supercall.h بداخله لتجنب أخطاء المسارات في نواة 4.19
+        mkdir -p drivers/kernelsu/uapi
+        if [ ! -f "drivers/kernelsu/uapi/supercall.h" ]; then
+          find drivers/kernelsu -name "supercall.h" -exec cp {} drivers/kernelsu/uapi/ \; || true
+        fi
+
+        # تصحيح مسار تضمين ملف supercall.h آلياً داخل kpm.h
         if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
           sed -i 's|#include "uapi/supercall.h"|#include "../uapi/supercall.h"|g' drivers/kernelsu/kpm/kpm.h
+          sed -i 's|#include "supercall.h"|#include "../uapi/supercall.h"|g' drivers/kernelsu/kpm/kpm.h
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
