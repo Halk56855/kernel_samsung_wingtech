@@ -5,107 +5,91 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KittiSU via Kprobes (Zero Core File Modification)
+    - name: Clean repository
       run: |
-        echo "[-] Cleaning up old remnants..."
-        rm -rf drivers/kernelsu KittiSU
+        git reset --hard || true
+        git clean -fd || true
 
-        echo "[-] Cloning KittiSU repository..."
-        git clone https://github.com/terebiko/KittiSU.git KittiSU -b testing
-
-        echo "[-] Neutralizing KittiSU strict manual hook check (Keeping core files 100% untouched)..."
-        find KittiSU/kernel/tools -name "*.mk" -exec truncate -s 0 {} \; || true
-
-        echo "[-] Linking KittiSU safely..."
-        if [ -d "KittiSU/kernel" ]; then
-          ln -sf ../KittiSU/kernel drivers/kernelsu
-        else
-          ln -sf ../KittiSU drivers/kernelsu
-        fi
-
-        echo "[-] Wiring Kconfig and Makefile safely..."
-        if ! grep -q "kernelsu" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
+    - name: Integrate KittiSU & Kernel 4.19 Ultimate Compatibility Fixes
+      run: |
+        rm -rf drivers/kernelsu
+        git clone https://github.com/KittiSU/KittiSU.git temp_kittisu
         
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
+        # 1. نسخ نواة KittiSU الأساسية
+        mkdir -p drivers/kernelsu
+        cp -rf temp_kittisu/* drivers/kernelsu/
+        
+        rm -rf temp_kittisu
+
+        # 2. توسيع مسارات البحث للمترجم داخل ميكفيل KittiSU لضمان قراءة هيدرز SELinux والمجلدات الداخلية للنواة
+        if [ -f "drivers/kernelsu/Makefile" ]; then
+          echo 'ccflags-y += -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(src)' >> drivers/kernelsu/Makefile
         fi
 
-        echo "[-] Ensuring clean makefiles for KittiSU..."
-        python3 -c '
-        import os, re
-        for r, ds, fs in os.walk("drivers/kernelsu"):
-            for f in fs:
-                if f in ("Makefile", "Kbuild") or f.endswith(".mk"):
-                    fp = os.path.join(r, f)
-                    with open(fp, "r") as fh: c = fh.read()
-                    c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
-                    c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
-                    with open(fp, "w") as fh: fh.write(c)
-        '
-        echo "[+] KittiSU linked cleanly and check bypassed without touching any core files!"
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+        fi
 
-    - name: Install build dependencies
+        if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+          sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"\n' drivers/Kconfig || echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
+
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip wget xz-utils \
-          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
+          libncurses5-dev ccache make git zip \
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi
 
-    - name: Prepare Toolchains directories
+    - name: Prepare directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC Toolchain
+    - name: Download GCC toolchain
       run: |
         cd toolchain/gcc
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
-    - name: Download Compatible Clang Toolchain
+    - name: Download Clang r383902 (Compatible with Kernel 4.19)
       run: |
         cd toolchain/clang
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
-    - name: Set Environment Variables
+    - name: Export environment variables
       run: |
-        CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
-        GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
+        GCC_BIN=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
+        CLANG_BIN=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin
         
-        echo "$CLANG_PATH" >> $GITHUB_PATH
-
-        echo "CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE=$GCC_BIN/aarch64-none-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=clang" >> $GITHUB_ENV
-        echo "LD=ld.lld" >> $GITHUB_ENV
-        echo "AR=llvm-ar" >> $GITHUB_ENV
-        echo "NM=llvm-nm" >> $GITHUB_ENV
-        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
-        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
-        echo "STRIP=llvm-strip" >> $GITHUB_ENV
+        echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "KCFLAGS=-w" >> $GITHUB_ENV
+        echo "HOSTCFLAGS=-w" >> $GITHUB_ENV
+        echo "LD=$GCC_BIN/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Configure and Compile Kernel
+    - name: Build Non-GKI Kernel 4.19
       run: |
-        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          rsuntk-a04_defconfig
 
-        if [ -f "arch/arm64/configs/rsuntk.config" ]; then
-          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
         fi
-
-        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
@@ -113,32 +97,31 @@ jobs:
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
-        CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KALLSYMS=y
-        CONFIG_KALLSYMS_ALL=y
-        CONFIG_SECURITY_SELINUX=y
-        CONFIG_SECURITY_SELINUX_DISABLE=y
-        CONFIG_SECURITY_SELINUX_DEVELOP=y
-        CONFIG_LTO=n
-        CONFIG_LTO_CLANG=n
-        CONFIG_THINLTO=n
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
 
-    - name: Package into AnyKernel3 Flashable Zip
+    - name: Package with AnyKernel3-a04
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Kernel4.19-KittiSU-AnyKernel3.zip * -x .git README.md LICENSE
 
-    - name: Upload Kernel Artifact
+    - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-KittiSU-4.19-Zip
-        path: A04-KittiSU-AnyKernel3.zip
+        name: A04-Kernel4.19-KittiSU-Flashable-Zip
+        path: A04-Kernel4.19-KittiSU-AnyKernel3.zip
