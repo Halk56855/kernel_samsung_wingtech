@@ -47,17 +47,7 @@ jobs:
                     c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
                     with open(fp, "w") as fh: fh.write(c)
         '
-
-        echo "[-] Patching top-level Makefile to bypass unknown Clang warnings..."
-        python3 -c '
-        with open("Makefile", "r") as f:
-            content = f.read()
-        if "-Wno-error=unknown-warning-option" not in content:
-            content = content.replace("KBUILD_CFLAGS += ", "KBUILD_CFLAGS += -Wno-error=unknown-warning-option ")
-        with open("Makefile", "w") as f:
-            f.write(content)
-        '
-        echo "[+] KittiSU linked cleanly and Makefile patched successfully!"
+        echo "[+] KittiSU linked cleanly without touching any drivers or core files!"
 
     - name: Install build dependencies
       run: |
@@ -101,9 +91,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -Wno-error=unknown-warning-option -Wno-unknown-warning-option" >> $GITHUB_ENV
-        echo "KBUILD_CFLAGS=-Wno-error=unknown-warning-option" >> $GITHUB_ENV
-        echo "HOSTCFLAGS=-Wno-error=unknown-warning-option" >> $GITHUB_ENV
+        echo "KCFLAGS=-w" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
