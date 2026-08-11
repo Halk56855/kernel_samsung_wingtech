@@ -129,7 +129,9 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد كافة ملفات الهيدر وملفات SELinux الضرورية (مثل flask.h) قبل بناء الـ drivers
+        # توليد ملفات SELinux الضرورية و flask.h مسبقاً لمنع أخطاء الفقدان
+        mkdir -p out/security/selinux
+        make -C $(pwd) O=$(pwd)/out security/selinux/flask.h || true
         make -C $(pwd) O=$(pwd)/out prepare
 
         make -C $(pwd) O=$(pwd)/out \
