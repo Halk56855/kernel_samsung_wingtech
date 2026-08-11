@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Fix Headers Locally
+    - name: Integrate SukiSU-Ultra & Fix Header Paths Robustly
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -24,21 +24,27 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # الحل الجذري الشامل: نسخ ملفات uapi مكان استدعائها وتعديل مسارات التضمين لتجنب مشاكل Kbuild في نواة 4.19
-        if [ -f "drivers/kernelsu/uapi/supercall.h" ]; then
-          cp drivers/kernelsu/uapi/supercall.h drivers/kernelsu/kpm/
-        fi
+        # الحل الهندسي الشامل: البحث والنسخ التلقائي لملفات الهيدرز في كافة المجلدات الفرعية
+        mkdir -p drivers/kernelsu/uapi drivers/kernelsu/kpm drivers/kernelsu/policy
+        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/kpm/ \;
+        find drivers/kernelsu -name "supercall.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
+        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/policy/ \;
+        find drivers/kernelsu -name "app_profile.h" -exec cp -f {} drivers/kernelsu/uapi/ \;
+
+        # تصحيح مسارات التضمين آلياً لتصبح محلية ومضمونة 100%
         if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
           sed -i 's|#include "uapi/supercall.h"|#include "supercall.h"|g' drivers/kernelsu/kpm/kpm.h
           sed -i 's|#include "../uapi/supercall.h"|#include "supercall.h"|g' drivers/kernelsu/kpm/kpm.h
         fi
 
-        if [ -f "drivers/kernelsu/uapi/app_profile.h" ]; then
-          cp drivers/kernelsu/uapi/app_profile.h drivers/kernelsu/policy/
-        fi
         if [ -f "drivers/kernelsu/policy/allowlist.h" ]; then
           sed -i 's|#include "uapi/app_profile.h"|#include "app_profile.h"|g' drivers/kernelsu/policy/allowlist.h
           sed -i 's|#include "../uapi/app_profile.h"|#include "app_profile.h"|g' drivers/kernelsu/policy/allowlist.h
+        fi
+
+        # توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط دون المساس بملفات النواة
+        if [ -f "drivers/kernelsu/Makefile" ]; then
+          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
