@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Fix Headers
+    - name: Integrate SukiSU-Ultra & Fix Include Paths Cleanly
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -24,13 +24,9 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # توفير مجلدات uapi في كافة المجلدات الفرعية تلقائياً لتجنب أخطاء التضمين في نواة 4.19
-        mkdir -p drivers/kernelsu/uapi
-        if [ -d "drivers/kernelsu/uapi" ]; then
-          mkdir -p drivers/kernelsu/policy/uapi
-          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/policy/uapi/ || true
-          mkdir -p drivers/kernelsu/kpm/uapi
-          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/kpm/uapi/ || true
+        # الحل الجذري والنظيف: إضافة مسارات الهيدرز و uapi إلى مسارات بحث المترجم داخل SukiSU-Ultra فقط
+        if [ -f "drivers/kernelsu/Makefile" ]; then
+          echo 'ccflags-y += -I$(src) -I$(src)/uapi' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
