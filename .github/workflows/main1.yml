@@ -14,8 +14,7 @@ jobs:
     - name: Integrate KittiSU & Proper Wiring
       run: |
         echo "[-] Cleaning up old KittiSU remnants..."
-        rm -rf drivers/kernelsu
-        rm -rf KittiSU
+        rm -rf drivers/kernelsu KittiSU
 
         echo "[-] Cloning KittiSU repository..."
         git clone https://github.com/terebiko/KittiSU.git KittiSU -b testing
@@ -39,93 +38,49 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating robust Python patching script..."
-        cat << 'PYTHON_SCRIPT' > patch_ksu.py
-        import os
-        import re
-
-        # 1. Force all Makefiles and Kbuild files under drivers/kernelsu to compile unconditionally (obj-y)
-        for root, dirs, files in os.walk("drivers/kernelsu"):
-            for file in files:
-                if file == "Makefile" or file == "Kbuild" or file.endswith(".mk"):
-                    filepath = os.path.join(root, file)
-                    with open(filepath, "r") as f:
-                        mk_code = f.read()
-                    mk_code = re.sub(r'obj-\$\([^)]+\)', 'obj-y', mk_code)
-                    mk_code = re.sub(r'obj-\$[A-Za-z0-9_]+', 'obj-y', mk_code)
-                    with open(filepath, "w") as f:
-                        f.write(mk_code)
-
-        # 2. Patch all avc_has_perm calls and fix macro definitions across KittiSU files
-        for root, dirs, files in os.walk("drivers/kernelsu"):
-            for file in files:
-                if file.endswith(".c") or file.endswith(".h"):
-                    filepath = os.path.join(root, file)
-                    with open(filepath, "r") as f:
-                        code = f.read()
-                    
-                    modified = False
-                    if "avc_has_perm" in code:
-                        def patch_avc(match):
-                            args = match.group(1)
-                            if "&selinux_state" not in args:
-                                return f"avc_has_perm(&selinux_state, {args})"
-                            return match.group(0)
-                        
-                        code = re.sub(r'avc_has_perm\s*\(([^)]+)\)', patch_avc, code)
-                        modified = True
-
-                    if "is_selinux_disabled" in code:
-                        code = re.sub(r'#define\s+is_selinux_disabled\s*\([^)]*\).*', '#define is_selinux_disabled() 0', code)
-                        modified = True
-
-                    if modified:
-                        with open(filepath, "w") as f:
-                            f.write(code)
-
-        # 3. Patch selinux.c for selinux_enforcing and current_sid redefinition resolution
-        path_selinux = "drivers/kernelsu/selinux/selinux.c"
-        if os.path.exists(path_selinux):
-            with open(path_selinux, "r") as f:
-                code = f.read()
-            
-            if "extern int selinux_enforcing;" not in code:
-                code = "extern int selinux_enforcing;\n" + code
-                
-            if "static inline u32 current_sid(void)" in code:
-                code = code.replace("static inline u32 current_sid(void)", "static inline u32 ksu_current_sid(void)")
-                code = code.replace("current_sid()", "ksu_current_sid()")
-                
-            with open(path_selinux, "w") as f:
-                f.write(code)
-
-        # 4. Patch rules.c for selinux_status_update_policyload and inject weak fallback for policydb & selinux_enforcing
-        path_rules = "drivers/kernelsu/selinux/rules.c"
-        if os.path.exists(path_rules):
-            with open(path_rules, "r") as f:
-                rules_code = f.read()
-            
-            rules_code = rules_code.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-            rules_code = rules_code.replace("selinux_status_update_policyload( 0 )", "selinux_status_update_policyload(&selinux_state, 0)")
-            
-            weak_patch = """
-#ifndef __KSU_WEAK_DEFS_H__
-#define __KSU_WEAK_DEFS_H__
-__attribute__((weak)) struct policydb policydb;
-__attribute__((weak)) int selinux_enforcing;
-#endif
-"""
-            if "struct policydb policydb" not in rules_code:
-                rules_code = weak_patch + rules_code
-                
-            with open(path_rules, "w") as f:
-                f.write(rules_code)
-
-        print("[+] Python precise patching & weak symbol fallback injection completed successfully!")
-        PYTHON_SCRIPT
-
-        python3 patch_ksu.py
-        rm patch_ksu.py
+        echo "[-] Applying robust Python patches..."
+        python3 -c '
+        import os, re
+        for r, ds, fs in os.walk("drivers/kernelsu"):
+            for f in fs:
+                if f in ("Makefile", "Kbuild") or f.endswith(".mk"):
+                    fp = os.path.join(r, f)
+                    with open(fp, "r") as fh: c = fh.read()
+                    c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
+                    c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
+                    with open(fp, "w") as fh: fh.write(c)
+        for r, ds, fs in os.walk("drivers/kernelsu"):
+            for f in fs:
+                if f.endswith((".c", ".h")):
+                    fp = os.path.join(r, f)
+                    with open(fp, "r") as fh: c = fh.read()
+                    m = False
+                    if "avc_has_perm" in c:
+                        c = re.sub(r"avc_has_perm\s*\(([^)]+)\)", lambda x: f"avc_has_perm(&selinux_state, {x.group(1)})" if "&selinux_state" not in x.group(1) else x.group(0), c)
+                        m = True
+                    if "is_selinux_disabled" in c:
+                        c = re.sub(r"#define\s+is_selinux_disabled\s*\([^)]*\).*", "#define is_selinux_disabled() 0", c)
+                        m = True
+                    if m:
+                        with open(fp, "w") as fh: fh.write(c)
+        ps = "drivers/kernelsu/selinux/selinux.c"
+        if os.path.exists(ps):
+            with open(ps, "r") as fh: c = fh.read()
+            if "extern int selinux_enforcing;" not in c: c = "extern int selinux_enforcing;\n" + c
+            if "static inline u32 current_sid(void)" in c:
+                c = c.replace("static inline u32 current_sid(void)", "static inline u32 ksu_current_sid(void)")
+                c = c.replace("current_sid()", "ksu_current_sid()")
+            with open(ps, "w") as fh: c = fh.write(c)
+        pr = "drivers/kernelsu/selinux/rules.c"
+        if os.path.exists(pr):
+            with open(pr, "r") as fh: rc = fh.read()
+            rc = rc.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            rc = rc.replace("selinux_status_update_policyload( 0 )", "selinux_status_update_policyload(&selinux_state, 0)")
+            wp = "\n#ifndef __KSU_WEAK_DEFS_H__\n#define __KSU_WEAK_DEFS_H__\n__attribute__((weak)) struct policydb policydb;\n__attribute__((weak)) int selinux_enforcing;\n#endif\n"
+            if "struct policydb policydb" not in rc: rc = wp + rc
+            with open(pr, "w") as fh: fh.write(rc)
+        print("[+] Patching completed successfully!")
+        '
         echo "[+] KittiSU integrated and fully patched!"
 
     - name: Install build dependencies
