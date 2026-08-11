@@ -15,18 +15,18 @@ jobs:
       run: |
         git reset --hard || true
         
-        # 1. استنساخ ReSukiSU وتجهيز الهيكل بشكل ذكي وآمن
+        # 1. استنساخ ReSukiSU وتجهيز المجلد بنجاح تام
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية هيكل المجلدات وضمان وجود ملفات Kconfig و Makefile في المكان الصحيح تماماً
+        # 2. تسوية الهيكل البرمجي وضمان توافق Kconfig و Makefile بنظام Python الآمن
         python3 - << 'EOF'
         import os
         import shutil
 
         ksu_dir = "drivers/kernelsu"
         if os.path.exists(ksu_dir):
-            # التحقق من وجود مجلد فرعي للـ kernel ونقل محتوياته للمستوى الرئيسي لـ kernelsu إذا لزم الأمر
+            # نقل محتويات مجلد kernel الفرعي إن وجد إلى المستوى الرئيسي
             kernel_sub = os.path.join(ksu_dir, "kernel")
             if os.path.exists(kernel_sub) and os.path.isdir(kernel_sub):
                 for item in os.listdir(kernel_sub):
@@ -42,7 +42,7 @@ jobs:
                     else:
                         shutil.copy2(s, d)
 
-            # التأكد من وجود Kconfig، وإذا كان موجوداً في مكان فرعي يتم نسخه للمجلد الرئيسي لـ kernelsu
+            # التأكد من وجود ملف Kconfig رئيسي داخل مجلد kernelsu
             if not os.path.exists(os.path.join(ksu_dir, "Kconfig")):
                 for root, dirs, files in os.walk(ksu_dir):
                     if "Kconfig" in files:
@@ -50,7 +50,7 @@ jobs:
                         shutil.copy2(src_kconfig, os.path.join(ksu_dir, "Kconfig"))
                         break
 
-            # تحييد فحص الـ Submodule والملفات المعيقة لمنع توقف البناء
+            # تحييد فحص الـ Submodule والـ errors في Kbuild لمنع توقف البناء
             kbuild_path = os.path.join(ksu_dir, "Kbuild")
             if os.path.exists(kbuild_path):
                 with open(kbuild_path, "r", encoding="utf-8") as f:
@@ -59,6 +59,7 @@ jobs:
                 with open(kbuild_path, "w", encoding="utf-8") as f:
                     f.write(content)
 
+            # تفريغ ملفات الفحص المعيقة في tools
             tools_dir = os.path.join(ksu_dir, "tools")
             if os.path.exists(tools_dir):
                 for root, dirs, files in os.walk(tools_dir):
@@ -81,14 +82,14 @@ jobs:
                 with open(kconfig_path, "w", encoding="utf-8") as f:
                     f.write(content)
 
-        # 4. ربط Makefile لضمان ترجمة وتضمين كود ReSukiSU داخل النواة
+        # 4. ربط Makefile لضمان تضمين وتوليد كود ReSukiSU داخل النواة
         makefile_path = "drivers/Makefile"
         if os.path.exists(makefile_path):
             with open(makefile_path, "r", encoding="utf-8") as f:
                 content = f.read()
             if "kernelsu" not in content:
                 with open(makefile_path, "a", encoding="utf-8") as f:
-                    f.write("\nobj-$(CONFIG_KSU) += kernelsu/\n")
+                    f.write("\nobj-y += kernelsu/\n")
         EOF
 
     - name: Install dependencies
@@ -133,25 +134,27 @@ jobs:
 
     - name: Build kernel
       run: |
-        # 1. حقن خيارات ReSukiSU المطلوبة في ملف الـ Defconfig الخاص بجهاز A04
+        # 1. حقن خيارات التكوين الأساسية لـ ReSukiSU في ملف الـ Defconfig
         DEFCONFIG_FILE="arch/arm64/configs/rsuntk-a04_defconfig"
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG_FILE
         fi
 
-        # 2. تهيئة ملف الإعدادات الأساسي
+        # 2. تهيئة ملف الإعدادات الأساسي للنواة
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
-        # 3. التأكد من تثبيت وتفعيل خيارات النواة الداخلية
+        # 3. ضمان حقن الإعدادات في ملف التكوين الناتج .config احتياطياً
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KSU_MANUAL_HOOK=y
+        CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
@@ -160,9 +163,17 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # 4. عملية البناء مع نظام التراجع التلقائي في حال الضغط
+        # 4. عملية البناء الرئيسية مدعومة بالـ LLVM ومعايير MTK لضمان النجاح التام مع نظام التراجع التلقائي
         make -C $(pwd) O=$(pwd)/out \
+          LLVM=1 \
+          LLVM_IAS=1 \
+          CROSS_COMPILE=aarch64-none-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          LLVM=1 \
+          LLVM_IAS=1 \
+          CROSS_COMPILE=aarch64-none-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
 
     - name: Clone AnyKernel3
