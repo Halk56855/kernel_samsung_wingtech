@@ -35,7 +35,7 @@ jobs:
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري ونهائي لأخطاء تطابق SELinux وتواقيع الدوال ومعاملات policydb في نواة 4.19
+        # 3. حل جذري ونهائي لأخطاء تطابق SELinux وتواقيع الدوال ومعاملات policydb بنظام المؤشرات الصحيح في نواة 4.19
         SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
         if [ -f "$SEL_DEFS_FILE" ]; then
           sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
@@ -55,7 +55,7 @@ jobs:
         RULES_FILE="drivers/kernelsu/selinux/rules.c"
         if [ -f "$RULES_FILE" ]; then
           sed -i 's/selinux_status_update_policyload(0)/selinux_status_update_policyload(\&selinux_state, 0)/g' "$RULES_FILE"
-          sed -i 's/db = &policydb;/db = \&selinux_state.ss.policydb;/g' "$RULES_FILE"
+          sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
         fi
 
         if [ -f "drivers/Kconfig" ] && ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
