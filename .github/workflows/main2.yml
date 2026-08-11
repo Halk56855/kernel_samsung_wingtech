@@ -114,13 +114,26 @@ jobs:
 
     - name: Build kernel
       run: |
-        # 1. تهيئة ملف الإعدادات الأساسي
+        # 1. حقن خيارات ReSukiSU المتوافقة في ملف الـ Defconfig مباشرة
+        DEFCONFIG_FILE="arch/arm64/configs/rsuntk-a04_defconfig"
+        if [ -f "$DEFCONFIG_FILE" ]; then
+            echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG_FILE
+        fi
+
+        # 2. تهيئة ملف الإعدادات الأساسي
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
-        # 2. حقن خيارات التكوين الأساسية لـ ReSukiSU المتوافقة مع 4.19
+        # 3. حقن إضافي للتأكد في ملف .config
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
+        CONFIG_KSU_MANUAL_HOOK=y
+        CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
@@ -129,7 +142,7 @@ jobs:
         # تحديث الإعدادات تلقائياً لتوافق النواة
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # 3. عملية البناء الرئيسية مع آلية التراجع الآمن (-j1 في حال فشل التوازي)
+        # 4. عملية البناء الرئيسية مع آلية التراجع الآمن (-j1 في حال فشل التوازي)
         make -C $(pwd) O=$(pwd)/out \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
           -j1
