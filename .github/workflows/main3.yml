@@ -94,9 +94,10 @@ jobs:
           fi
         fi
 
-        # 8. توسيع مسارات البحث للمترجم داخل ميكفيل SukiSU فقط لضمان قراءة الهيدرز المحلية والنواة
+        # 8. ضبط مسارات البحث للمترجم بدقة لضمان قراءة مجلد uapi والهيدرز المحلية
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
+          sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
