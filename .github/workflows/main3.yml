@@ -16,7 +16,7 @@ jobs:
         git reset --hard || true
         git clean -fd || true
 
-    - name: Integrate SukiSU-Ultra & Fix Include Paths Cleanly
+    - name: Integrate SukiSU-Ultra & Fix Header Paths Permanently
       run: |
         rm -rf drivers/kernelsu
         git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
@@ -24,9 +24,18 @@ jobs:
         cp -rf temp_sukisu/kernel/* drivers/kernelsu/
         rm -rf temp_sukisu
 
-        # الحل الجذري والنظيف: إضافة مسارات الهيدرز و uapi إلى مسارات بحث المترجم داخل SukiSU-Ultra فقط
+        # الحل الجذري الشامل: توفير ملفات uapi في كافة المجلدات الفرعية لـ SukiSU-Ultra تلقائياً
+        mkdir -p drivers/kernelsu/uapi
+        if [ -d "drivers/kernelsu/uapi" ]; then
+          mkdir -p drivers/kernelsu/kpm/uapi drivers/kernelsu/policy/uapi drivers/kernelsu/core/uapi
+          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/kpm/uapi/ || true
+          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/policy/uapi/ || true
+          cp -rf drivers/kernelsu/uapi/* drivers/kernelsu/core/uapi/ || true
+        fi
+
+        # إضافة مسارات البحث للمترجم داخل مmakefile الخاص بـ SukiSU-Ultra فقط دون المساس بملفات النواة
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'ccflags-y += -I$(src) -I$(src)/uapi' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/uapi -I$(src)/kpm/uapi -I$(src)/policy/uapi' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
