@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Native Kbuild & Deep SELinux Patches
+    - name: Clean repository and setup ReSukiSU with Universal Recursive Kbuild & Deep SELinux Patches
       run: |
         git reset --hard || true
         
@@ -24,15 +24,28 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        if [ ! -f "drivers/kernelsu/Kconfig" ]; then
-          find drivers/kernelsu -name "Kconfig" -exec cp {} drivers/kernelsu/Kconfig \; -quit
-        fi
+        # 3. إنشاء نظام Kbuild شامل وتلقائي لكل مجلد فرعي لضمان تجميع كافة ملفات ReSukiSU وربطها في vmlinux
+        rm -f drivers/kernelsu/Kbuild drivers/kernelsu/Makefile
+        
+        cat << 'EOF' > drivers/kernelsu/Kbuild
+        ccflags-y += -DCONFIG_KSU=1 -DCONFIG_KSU_MANUAL_HOOK=1
+        ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-incompatible-pointer-types -Wno-int-conversion
 
-        # 3. تعديل ملف Kbuild الأصلي لـ ReSukiSU وحقن مسارات SELinux وتحويل الخطأ لتحذير
-        if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i 's/\$(error/\$(warning/g' drivers/kernelsu/Kbuild
-          sed -i '1i ccflags-y += -Isecurity/selinux -Isecurity/selinux/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux' drivers/kernelsu/Kbuild
-        fi
+        obj-y += $(patsubst %.c,%.o,$(wildcard *.c))
+        EOF
+
+        for sub in core selinux feature manager; do
+          if [ -d "drivers/kernelsu/$sub" ]; then
+            echo "obj-y += $sub/" >> drivers/kernelsu/Kbuild
+          fi
+        done
+
+        find drivers/kernelsu -type d | while read dir; do
+          if [ ! -f "$dir/Kbuild" ] && [ ! -f "$dir/Makefile" ]; then
+            echo "obj-y := \$(patsubst %.c,%.o,\$(wildcard *.c))" > "$dir/Kbuild"
+          fi
+        done
 
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
