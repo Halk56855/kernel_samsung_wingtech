@@ -61,6 +61,7 @@ jobs:
                         fh.write("#define __KSU_SELINUX_DEFS_H\n")
                         fh.write("#include <security.h>\n")
                         fh.write("#include <objsec.h>\n")
+                        fh.write("#include <policydb.h>\n")
                         fh.write("extern struct selinux_state selinux_state;\n")
                         fh.write("#define __is_selinux_enforcing() (selinux_state.enforcing)\n")
                         fh.write("#define __setenforce(val) (selinux_state.enforcing = val)\n")
@@ -78,7 +79,7 @@ jobs:
                         fh.write("#define KSU_FILE_CONTEXT \"u:object_r:system_file:s0\"\n")
                         fh.write("#endif\n")
                         fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} cleanly without struct collisions")
+                    print(f"[+] Overwritten {fp} with policydb.h inclusion")
 
                 if f == "selinux.c":
                     fp = os.path.join(root, f)
@@ -90,10 +91,8 @@ jobs:
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
                     content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-                    content = content.replace("&policydb", "&selinux_state.policydb")
-                    content = content.replace("= policydb;", "= selinux_state.policydb;")
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp} to use selinux_state.policydb safely")
+                    print(f"[+] Patched {fp}")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
@@ -138,7 +137,7 @@ jobs:
                     with open(fp, "r") as fh: c = fh.read()
                     c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
                     c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
-                    with open(fp, "w") as fh: c = fh.write(c)
+                    with open(fp, "w") as fh: fh.write(c)
         '
         echo "[+] KittiSU successfully integrated and fully patched for Samsung 4.19!"
 
@@ -188,7 +187,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
