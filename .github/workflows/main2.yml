@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Complete SUSFS & SELinux Integration
+    - name: Clean repository and setup ReSukiSU with Manual Hook & SELinux Integration
       run: |
         git reset --hard || true
         
@@ -110,7 +110,6 @@ jobs:
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
-            echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
@@ -124,7 +123,6 @@ jobs:
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KSU_MANUAL_HOOK=y
-        CONFIG_KSU_SUSFS=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
