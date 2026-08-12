@@ -62,7 +62,7 @@ jobs:
         fi
 
         # 4. إصلاح توافق SECCOMP_ARCH_NATIVE_NR لنواة 4.19 داخل seccomp_cache.c
-        python3 -c '
+        python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(path):
@@ -72,7 +72,7 @@ jobs:
             content = fix + content
             with open(path, "w") as f:
                 f.write(content)
-        '
+        EOF
 
         # 5. تصحيح تضمينات uapi آلياً لتتوافق تماماً مع بيئة نواة 4.19 وتجنب أخطاء mount.h
         find drivers/kernelsu -type f -name "*.c" -o -name "*.h" | xargs sed -i 's|#include <uapi/|#include <|g'
@@ -126,7 +126,7 @@ jobs:
         fi
 
         # 7. إصلاح توافق TWA_RESUME و fallthrough داخل allowlist.c لنواة 4.19
-        python3 -c '
+        python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/policy/allowlist.c"
         if os.path.exists(path):
@@ -137,10 +137,10 @@ jobs:
             content = content.replace("fallthrough;", "/* fallthrough */;")
             with open(path, "w") as f:
                 f.write(content)
-        '
+        EOF
 
         # 8. معالجة وتجاوز خطأ filter_count في app_profile.c لنواة 4.19 القديمة
-        python3 -c '
+        python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/policy/app_profile.c"
         if os.path.exists(path):
@@ -149,32 +149,29 @@ jobs:
             content = content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); */")
             with open(path, "w") as f:
                 f.write(content)
-        '
+        EOF
 
         # 9. معالجة وتجاوز أخطاء SELinux (sepolicy.c و rules.c) لنواة 4.19 القديمة بشكل نهائي وآمن
-        python3 -c '
+        python3 - << 'EOF'
         import os
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "w") as f:
-                f.write("""
-#include <linux/version.h>
-#include <linux/types.h>
-#include <linux/kernel.h>
-int ksu_selinux_init(void) { return 0; }
-void ksu_apply_selinux_rules(void) {}
-""")
+                f.write("""#include <linux/version.h>
+        #include <linux/types.h>
+        #include <linux/kernel.h>
+        int ksu_selinux_init(void) { return 0; }
+        void ksu_apply_selinux_rules(void) {}
+        """)
 
         sepolicy_path = "drivers/kernelsu/selinux/sepolicy.c"
         if os.path.exists(sepolicy_path):
             with open(sepolicy_path, "w") as f:
-                f.write("""
-#include <linux/version.h>
-#include <linux/types.h>
-#include <linux/kernel.h>
-// توافقية آمنة لـ sepolicy على نواة 4.19
-""")
-        '
+                f.write("""#include <linux/version.h>
+        #include <linux/types.h>
+        #include <linux/kernel.h>
+        """)
+        EOF
 
         # 10. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
