@@ -1,22 +1,35 @@
-name: Remove KernelSU
+name: Delete KernelSU Submodule
 
 on:
-  workflow_dispatch: # لتشغيل الأردن يدوياً من علامة تبويب Actions
+  workflow_dispatch: # زر للتشغيل اليدوي
 
 jobs:
-  remove-kernelsu:
+  delete-submodule:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # منح صلاحية التعديل والكتابة للمستودع
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Remove KernelSU
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Remove KernelSU completely
         run: |
           git submodule deinit -f -- KernelSU || true
           git rm -f KernelSU || true
           rm -rf .git/modules/KernelSU || true
+          rm -rf KernelSU || true
+          
           if [ -f ".gitmodules" ]; then
             git add .gitmodules
           fi
+          
+          git commit -m "Remove KernelSU submodule permanently" || echo "No changes to commit"
+          git push origin android-4.19-stable
