@@ -1,6 +1,0 @@
-git submodule deinit -f -- KernelSU
-git rm -f KernelSU
-rm -rf .git/modules/KernelSU
-git add .gitmodules
-git commit -m "Remove KernelSU submodule"
-git push origin android-4.19-stable
