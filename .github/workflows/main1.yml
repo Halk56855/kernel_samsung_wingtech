@@ -44,11 +44,36 @@ jobs:
                 if f == "selinux_hide.c":
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
-                    # Fix avc_has_perm calls lacking selinux_state pointer in 4.19 kernels
                     content = content.replace("avc_has_perm(current_sid()", "avc_has_perm(&selinux_state, current_sid()")
                     content = content.replace("avc_has_perm(mysid", "avc_has_perm(&selinux_state, mysid")
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Successfully patched {fp}")
+        '
+
+        echo "[-] Robust patching of SELinux definitions and current_sid guard for Samsung 4.19..."
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("KittiSU"):
+            for f in files:
+                if f == "selinux_defs.h":
+                    fp = os.path.join(root, f)
+                    with open(fp, "w") as fh:
+                        fh.write("#ifndef __KSU_SELINUX_DEFS_H\n")
+                        fh.write("#define __KSU_SELINUX_DEFS_H\n")
+                        fh.write("#include <security/selinux/include/security.h>\n")
+                        fh.write("extern struct selinux_state selinux_state;\n")
+                        fh.write("#define __is_selinux_enforcing() (selinux_state.enforcing)\n")
+                        fh.write("#define __setenforce(val) (selinux_state.enforcing = val)\n")
+                        fh.write("#define is_selinux_disabled() (selinux_state.disabled)\n")
+                        fh.write("#endif\n")
+                    print(f"[+] Overwritten {fp} with safe Samsung 4.19 definitions")
+
+                if f == "selinux.c":
+                    fp = os.path.join(root, f)
+                    with open(fp, "r") as fh: content = fh.read()
+                    if "static inline u32 current_sid(void)" in content:
+                        content = content.replace("static inline u32 current_sid(void)", "#ifndef current_sid\nstatic inline u32 current_sid(void)\n#endif")
+                    with open(fp, "w") as fh: fh.write(content)
+                    print(f"[+] Patched {fp} for current_sid guard")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
@@ -95,7 +120,7 @@ jobs:
                     c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
                     with open(fp, "w") as fh: fh.write(c)
         '
-        echo "[+] KittiSU successfully integrated and patched!"
+        echo "[+] KittiSU successfully integrated and fully patched for Samsung 4.19!"
 
     - name: Install build dependencies
       run: |
