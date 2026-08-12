@@ -49,9 +49,9 @@ jobs:
                     with open(fp, "w") as fh: fh.write(content)
         '
 
-        echo "[-] Robust patching of SELinux definitions, objsec.h, and context constants for Samsung 4.19..."
+        echo "[-] Robust patching of SELinux definitions, contexts, and current_sid redefinition guard for Samsung 4.19..."
         python3 -c '
-        import os
+        import os, re
         for root, dirs, files in os.walk("KittiSU"):
             for f in files:
                 if f == "selinux_defs.h":
@@ -71,15 +71,22 @@ jobs:
                         fh.write("#ifndef ZYGOTE_CONTEXT\n")
                         fh.write("#define ZYGOTE_CONTEXT \"u:r:zygote:s0\"\n")
                         fh.write("#endif\n")
+                        fh.write("#ifndef INIT_CONTEXT\n")
+                        fh.write("#define INIT_CONTEXT \"u:r:init:s0\"\n")
                         fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} with complete Samsung 4.19 definitions")
+                        fh.write("#ifndef KSU_FILE_CONTEXT\n")
+                        fh.write("#define KSU_FILE_CONTEXT \"u:object_r:system_file:s0\"\n")
+                        fh.write("#endif\n")
+                        fh.write("#endif\n")
+                    print(f"[+] Overwritten {fp} with complete Samsung 4.19 definitions and contexts")
 
                 if f == "selinux.c":
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
-                    if "static inline u32 current_sid(void)" in content:
-                        content = content.replace("static inline u32 current_sid(void)", "#ifndef current_sid\nstatic inline u32 current_sid(void)\n#endif")
+                    # Remove conflicting local current_sid definition since objsec.h provides it
+                    content = re.sub(r"static inline u32 current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
                     with open(fp, "w") as fh: fh.write(content)
+                    print(f"[+] Patched {fp} to avoid current_sid redefinition")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
