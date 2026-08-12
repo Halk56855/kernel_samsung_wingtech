@@ -151,29 +151,28 @@ jobs:
                 f.write(content)
         '
 
-        # 9. معالجة وتجاوز أخطاء SELinux القديمة في rules.c لنواة 4.19 القديمة
+        # 9. معالجة وتجاوز أخطاء SELinux القديمة في rules.c لنواة 4.19 مع تضمين version.h أولاً لتجنب أي خطأ ماكرو
         python3 -c '
         import os
         path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(path):
             with open(path, "r") as f:
                 content = f.read()
-            if "#include <linux/version.h>" not in content:
-                content = "#include <linux/version.h>\n" + content
             
-            # التفاف توافقي يمنع تداعيات أخطاء بنية SELinux الحديثة على نواة 4.19
-            replacement = """
+            wrapped = """
+        #include <linux/version.h>
+        #include <linux/types.h>
+        #include <linux/kernel.h>
+
         #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
-        // الكود الاصلي الحديث
         """ + content + """
         #else
-        // توافقية فارغة وآمنة تماماً لنواة 4.19 لتجنب أي أخطاء بناء
         int ksu_selinux_init(void) { return 0; }
         void ksu_apply_selinux_rules(void) {}
         #endif
         """
             with open(path, "w") as f:
-                f.write(replacement)
+                f.write(wrapped)
         '
 
         # 10. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
