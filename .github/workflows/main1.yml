@@ -49,7 +49,7 @@ jobs:
                     with open(fp, "w") as fh: fh.write(content)
         '
 
-        echo "[-] Robust patching of SELinux definitions, contexts, rules, and current_sid for Samsung 4.19..."
+        echo "[-] Clean and safe patching of SELinux definitions and rules for Samsung 4.19..."
         python3 -c '
         import os, re
         for root, dirs, files in os.walk("KittiSU"):
@@ -65,7 +65,6 @@ jobs:
                         fh.write("#define __is_selinux_enforcing() (selinux_state.enforcing)\n")
                         fh.write("#define __setenforce(val) (selinux_state.enforcing = val)\n")
                         fh.write("#define is_selinux_disabled() (selinux_state.disabled)\n")
-                        fh.write("#define policydb (selinux_state.policydb)\n")
                         fh.write("#ifndef KERNEL_SU_CONTEXT\n")
                         fh.write("#define KERNEL_SU_CONTEXT \"u:r:su:s0\"\n")
                         fh.write("#endif\n")
@@ -79,7 +78,7 @@ jobs:
                         fh.write("#define KSU_FILE_CONTEXT \"u:object_r:system_file:s0\"\n")
                         fh.write("#endif\n")
                         fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} with complete Samsung 4.19 definitions")
+                    print(f"[+] Overwritten {fp} cleanly without struct collisions")
 
                 if f == "selinux.c":
                     fp = os.path.join(root, f)
@@ -91,8 +90,10 @@ jobs:
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
                     content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+                    content = content.replace("&policydb", "&selinux_state.policydb")
+                    content = content.replace("= policydb;", "= selinux_state.policydb;")
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp} for selinux_status_update_policyload state argument")
+                    print(f"[+] Patched {fp} to use selinux_state.policydb safely")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
