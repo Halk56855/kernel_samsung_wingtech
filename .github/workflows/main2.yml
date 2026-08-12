@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Manual Hook & SELinux Integration
+    - name: Clean repository and setup ReSukiSU with Complete Kconfig & Manual Hook Integration
       run: |
         git reset --hard || true
         
@@ -60,9 +60,13 @@ jobs:
           sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
         fi
 
-        # ربط ReSukiSU بنظام بناء النواة العام وضمان تفعيله كـ obj-y
+        # 4. ربط ReSukiSU بنظام بناء النواة العام وإعدادات Kconfig لضمان عدم حذف المتغيرات
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
+        fi
+
+        if [ -f "drivers/Kconfig" ]; then
+          grep -q "kernelsu" drivers/Kconfig || echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
 
     - name: Install dependencies
