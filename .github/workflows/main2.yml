@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Complete Kconfig & Manual Hook Integration
+    - name: Clean repository and setup ReSukiSU with Complete SuSucompat & SELinux Integration
       run: |
         git reset --hard || true
         
@@ -34,7 +34,7 @@ jobs:
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb ورموز المؤشرات في نواة 4.19
+        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb وتصحيح بادئة ksu_security لصالح نواة 4.19
         SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
         if [ -f "$SEL_DEFS_FILE" ]; then
           sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
@@ -52,6 +52,10 @@ jobs:
         if [ -f "$SEL_HIDE_FILE" ]; then
           sed -i 's/avc_has_perm(current_sid()/avc_has_perm(\&selinux_state, current_sid()/g' "$SEL_HIDE_FILE"
           sed -i 's/avc_has_perm(mysid/avc_has_perm(\&selinux_state, mysid/g' "$SEL_HIDE_FILE"
+          sed -i 's/ksu_security_context_to_sid/security_context_to_sid/g' "$SEL_HIDE_FILE"
+          sed -i 's/ksu_security_sid_to_context/security_sid_to_context/g' "$SEL_HIDE_FILE"
+          sed -i 's/ksu_security_context_str_to_sid/security_context_to_sid/g' "$SEL_HIDE_FILE"
+          sed -i 's/ksu_security_compute_av_user/security_compute_av_user/g' "$SEL_HIDE_FILE"
         fi
 
         RULES_FILE="drivers/kernelsu/selinux/rules.c"
@@ -115,6 +119,7 @@ jobs:
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KSU_SUCOMPAT=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
@@ -128,6 +133,7 @@ jobs:
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KSU_MANUAL_HOOK=y
+        CONFIG_KSU_SUCOMPAT=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
