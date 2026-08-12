@@ -1,0 +1,22 @@
+name: Remove KernelSU
+
+on:
+  workflow_dispatch: # لتشغيل الأردن يدوياً من علامة تبويب Actions
+
+jobs:
+  remove-kernelsu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Remove KernelSU
+        run: |
+          git submodule deinit -f -- KernelSU || true
+          git rm -f KernelSU || true
+          rm -rf .git/modules/KernelSU || true
+          if [ -f ".gitmodules" ]; then
+            git add .gitmodules
+          fi
