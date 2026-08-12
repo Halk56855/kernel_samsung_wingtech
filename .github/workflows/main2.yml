@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Submodule Bypass & SELinux Include Patches
+    - name: Clean repository and setup ReSukiSU with Complete Integration & Patches
       run: |
         git reset --hard || true
         
@@ -28,7 +28,6 @@ jobs:
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
           sed -i 's/error/warning/g' drivers/kernelsu/Kbuild || true
-          # إضافة مسارات الهيدرات المُولدة (objtree) لحل مشكلة flask.h نهائياً
           echo "ccflags-y += -I\$(objtree)/security/selinux -I\$(objtree)/security/selinux/include" >> drivers/kernelsu/Kbuild
         fi
 
@@ -44,6 +43,7 @@ jobs:
         SEL_FILE="drivers/kernelsu/selinux/selinux.c"
         if [ -f "$SEL_FILE" ]; then
           sed -i 's/static inline u32 current_sid(void)/static inline u32 ksu_current_sid(void)/g' "$SEL_FILE"
+          sed -i 's/__is_selinux_enforcing/selinux_is_enforcing/g' "$SEL_FILE" || true
         fi
 
         SEL_HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
@@ -58,9 +58,9 @@ jobs:
           sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
         fi
 
-        # ربط ReSukiSU بنظام بناء النواة العام
-        if [ -f "drivers/Makefile" ] && ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
+        # ربط ReSukiSU بنظام بناء النواة العام وضمان تفعيله كـ obj-y
+        if [ -f "drivers/Makefile" ]; then
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
     - name: Install dependencies
