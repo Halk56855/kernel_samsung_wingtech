@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Complete Integration & Patches
+    - name: Clean repository and setup ReSukiSU with Complete SUSFS & SELinux Integration
       run: |
         git reset --hard || true
         
@@ -43,7 +43,8 @@ jobs:
         SEL_FILE="drivers/kernelsu/selinux/selinux.c"
         if [ -f "$SEL_FILE" ]; then
           sed -i 's/static inline u32 current_sid(void)/static inline u32 ksu_current_sid(void)/g' "$SEL_FILE"
-          sed -i 's/__is_selinux_enforcing/selinux_is_enforcing/g' "$SEL_FILE" || true
+          sed -i 's/__is_selinux_enforcing/selinux_state.enforcing/g' "$SEL_FILE" || true
+          sed -i 's/selinux_is_enforcing/selinux_state.enforcing/g' "$SEL_FILE" || true
         fi
 
         SEL_HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
@@ -109,6 +110,7 @@ jobs:
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
@@ -122,6 +124,7 @@ jobs:
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
         CONFIG_KSU_MANUAL_HOOK=y
+        CONFIG_KSU_SUSFS=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
