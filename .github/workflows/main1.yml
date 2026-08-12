@@ -49,7 +49,7 @@ jobs:
                     with open(fp, "w") as fh: fh.write(content)
         '
 
-        echo "[-] Robust patching of SELinux definitions and current_sid guard for Samsung 4.19..."
+        echo "[-] Robust patching of SELinux definitions with correct header inclusion for Samsung 4.19..."
         python3 -c '
         import os
         for root, dirs, files in os.walk("KittiSU"):
@@ -59,13 +59,13 @@ jobs:
                     with open(fp, "w") as fh:
                         fh.write("#ifndef __KSU_SELINUX_DEFS_H\n")
                         fh.write("#define __KSU_SELINUX_DEFS_H\n")
-                        fh.write("#include <security/selinux/include/security.h>\n")
+                        fh.write("#include <security.h>\n")
                         fh.write("extern struct selinux_state selinux_state;\n")
                         fh.write("#define __is_selinux_enforcing() (selinux_state.enforcing)\n")
                         fh.write("#define __setenforce(val) (selinux_state.enforcing = val)\n")
                         fh.write("#define is_selinux_disabled() (selinux_state.disabled)\n")
                         fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} with safe Samsung 4.19 definitions")
+                    print(f"[+] Overwritten {fp} with accurate Samsung 4.19 definitions")
 
                 if f == "selinux.c":
                     fp = os.path.join(root, f)
@@ -73,7 +73,6 @@ jobs:
                     if "static inline u32 current_sid(void)" in content:
                         content = content.replace("static inline u32 current_sid(void)", "#ifndef current_sid\nstatic inline u32 current_sid(void)\n#endif")
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp} for current_sid guard")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
