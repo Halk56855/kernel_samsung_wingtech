@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Submodule Bypass & SELinux Patches
+    - name: Clean repository and setup ReSukiSU with Submodule Bypass & SELinux Include Patches
       run: |
         git reset --hard || true
         
@@ -28,6 +28,8 @@ jobs:
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
           sed -i 's/error/warning/g' drivers/kernelsu/Kbuild || true
+          # إضافة مسارات الهيدرات المُولدة (objtree) لحل مشكلة flask.h نهائياً
+          echo "ccflags-y += -I\$(objtree)/security/selinux -I\$(objtree)/security/selinux/include" >> drivers/kernelsu/Kbuild
         fi
 
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
@@ -129,7 +131,7 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد ملفات SELinux الضرورية و flask.h مسبقاً لمنع أخطاء الفقدان
+        # توليد ملفات SELinux الأساسية وملف flask.h مسبقاً لضمان توفرها أثناء البناء
         mkdir -p out/security/selinux
         make -C $(pwd) O=$(pwd)/out security/selinux/flask.h || true
         make -C $(pwd) O=$(pwd)/out prepare
