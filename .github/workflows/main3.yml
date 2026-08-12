@@ -139,7 +139,19 @@ jobs:
                 f.write(content)
         '
 
-        # 8. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
+        # 8. معالجة وتجاوز خطأ filter_count في app_profile.c لنواة 4.19 القديمة
+        python3 -c '
+        import os
+        path = "drivers/kernelsu/policy/app_profile.c"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                content = f.read()
+            content = content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); */")
+            with open(path, "w") as f:
+                f.write(content)
+        '
+
+        # 9. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_LINUX_PGTABLE_H
@@ -149,17 +161,17 @@ jobs:
         #endif
         EOF
 
-        # 9. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 10. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 10. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 11. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 11. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
+        # 12. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
         if [ -f "drivers/kernelsu/Makefile" ]; then
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
           echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
