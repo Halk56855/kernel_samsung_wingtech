@@ -1,0 +1,123 @@
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Integrate Wild_KSU KernelSU & Proper Wiring
+      run: |
+        echo "[-] Cleaning up old KernelSU remnants..."
+        rm -rf drivers/kernelsu
+        rm -rf KernelSU
+
+        echo "[-] Cloning WildKernels Wild_KSU repository (dev branch)..."
+        git clone https://github.com/WildKernels/Wild_KSU.git KernelSU -b dev
+
+        echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
+        if [ -d "KernelSU/kernel" ]; then
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+        else
+          ln -sf ../KernelSU drivers/kernelsu
+        fi
+
+        echo "[-] Safely wiring Kconfig and Makefile..."
+        if ! grep -q "kernelsu" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
+        
+        if ! grep -q "kernelsu" drivers/Makefile; then
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
+        fi
+        
+        echo "[+] Wild_KSU integrated successfully without touching core drivers!"
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc g++ clang python3 \
+          libncurses5-dev ccache make git zip wget xz-utils \
+          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
+
+    - name: Prepare Toolchains directories
+      run: mkdir -p toolchain/gcc toolchain/clang
+
+    - name: Download GCC Toolchain
+      run: |
+        cd toolchain/gcc
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        tar -xf gcc.tar.xz -C ./
+
+    - name: Download Compatible Clang Toolchain
+      run: |
+        cd toolchain/clang
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        mkdir -p host/linux-x86/clang-r383902
+        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+
+    - name: Set Environment Variables
+      run: |
+        CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
+        GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
+        
+        echo "$CLANG_PATH" >> $GITHUB_PATH
+
+        echo "CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "LD=ld.lld" >> $GITHUB_ENV
+        echo "AR=llvm-ar" >> $GITHUB_ENV
+        echo "NM=llvm-nm" >> $GITHUB_ENV
+        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
+        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
+        echo "STRIP=llvm-strip" >> $GITHUB_ENV
+        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -Wno-unknown-warning-option" >> $GITHUB_ENV
+        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+
+    - name: Configure and Compile Kernel
+      run: |
+        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
+
+        if [ -f "arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
+        fi
+
+        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات Wild_KSU بالكامل
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
+
+        cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_IKHEADERS=n
+        CONFIG_KSU=y
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_KPROBE_HOOKS=y
+        EOT
+
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+
+        make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j$(nproc) || make -C $(pwd) O=$(pwd)/out KCFLAGS="-w -Wno-unknown-warning-option" -j1
+
+    - name: Package into AnyKernel3 Flashable Zip
+      run: |
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
+        zip -r9 ../A04-KernelSU-AnyKernel3.zip * -x .git README.md LICENSE
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: A04-KernelSU-4.19-Zip
+        path: A04-KernelSU-AnyKernel3.zip
