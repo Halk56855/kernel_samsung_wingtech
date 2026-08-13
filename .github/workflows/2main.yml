@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Bulletproof Kernel 4.19 Patcher
+    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -20,32 +20,36 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying bulletproof Python patch to neutralize MODULE_IMPORT_NS for Kernel 4.19..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS & TWA_RESUME compatibility)..."
         python3 -c '
-        import os
-        count = 0
+        import os, re
+        ns_count = 0
+        twa_count = 0
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
                 if file.endswith((".c", ".h")):
                     path = os.path.join(root, file)
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        lines = f.readlines()
+                        content = f.read()
                     
-                    new_lines = []
-                    file_modified = False
-                    for line in lines:
-                        if "MODULE_IMPORT_NS" in line:
-                            new_lines.append("// [Kernel-4.19-Compat] " + line)
-                            file_modified = True
-                            count += 1
-                        else:
-                            new_lines.append(line)
-                    
-                    if file_modified:
+                    # 1. Neutralize MODULE_IMPORT_NS
+                    new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
+                    if new_content != content:
+                        ns_count += 1
+
+                    # 2. Fix task_work_add 3-argument version with TWA flags for older kernels (4.19)
+                    content2 = new_content
+                    new_content = re.sub(r"task_work_add\s*\(([^)]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1)", content2)
+                    if new_content != content2:
+                        twa_count += 1
+
+                    if new_content != content:
                         with open(path, "w", encoding="utf-8") as f:
-                            f.writelines(new_lines)
-                        print(f"Patched successfully: {path}")
-        print(f"Total MODULE_IMPORT_NS occurrences neutralized: {count}")
+                            f.write(new_content)
+                        print(f"Successfully patched: {path}")
+
+        print(f"Total MODULE_IMPORT_NS neutralized: {ns_count}")
+        print(f"Total task_work_add TWA flags adjusted for 4.19: {twa_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
