@@ -63,7 +63,18 @@ jobs:
                     f.write(content)
                 print('Successfully patched pkg_observer.c for Kernel 4.19 fsnotify_ops.')
 
-        # 3. Robust structural and definition patch for sucompat.c
+        # 3. Fix KSU Makefile object targets to prevent missing target errors on Kernel 4.19
+        ksu_makefile = 'drivers/kernelsu/Makefile'
+        if os.path.exists(ksu_makefile):
+            with open(ksu_makefile, 'r') as f:
+                mf_content = f.read()
+            # Remove references to non-existent or conflicting object files in 4.19
+            mf_content = mf_content.replace('setuid_hook.o', '')
+            with open(ksu_makefile, 'w') as f:
+                f.write(mf_content)
+            print('Successfully cleaned up drivers/kernelsu/Makefile targets.')
+
+        # 4. Robust structural and definition patch for sucompat.c
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
