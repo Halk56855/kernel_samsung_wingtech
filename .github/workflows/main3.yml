@@ -340,11 +340,12 @@ jobs:
           fi
         fi
 
-        # 17. إضافة compat_stubs.o في ملف الـ Makefile الخاص بـ KernelSU
+        # 17. حقن ترويسات التوافق و subdir-ccflags-y في ملف الـ Makefile الخاص بـ KernelSU لتمريرها تلقائياً لكل المجلدات الفرعية بأمان
         if [ -f "drivers/kernelsu/Makefile" ]; then
           echo 'obj-y += compat_stubs.o' >> drivers/kernelsu/Makefile
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
-          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
+          sed -i '/subdir-ccflags-y/d' drivers/kernelsu/Makefile
+          echo 'subdir-ccflags-y := -include $(src)/compat_stubs.h -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
@@ -390,8 +391,7 @@ jobs:
         echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        # تضمين compat_stubs.h عالمياً لجميع ملفات النواة لتجنب أي أخطاء ربط
-        echo "KCFLAGS=-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" >> $GITHUB_ENV
+        echo "KCFLAGS=-w" >> $GITHUB_ENV
         echo "HOSTCFLAGS=-w" >> $GITHUB_ENV
         echo "LD=$GCC_BIN/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
@@ -399,7 +399,7 @@ jobs:
     - name: Build Non-GKI Kernel 4.19
       run: |
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
@@ -419,11 +419,11 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
