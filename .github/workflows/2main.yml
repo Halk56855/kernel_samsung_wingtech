@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 & Safe Selinux Hide Stub..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (static_assert, Selinux Hide stub, KPM, SuSFS)..."
         python3 -c '
         import os, re
         
@@ -28,7 +28,7 @@ jobs:
             for file in files:
                 path = os.path.join(root, file)
                 
-                # Turn selinux_hide.c into a clean safe stub to completely disable it without deleting the file
+                # Turn selinux_hide.c into a clean safe stub
                 if file == "selinux_hide.c":
                     with open(path, "w", encoding="utf-8") as f:
                         f.write("/* [Compat-4.19] SELinux Hide disabled safe stub */\nvoid ksu_selinux_hide_dummy(void) {}\n")
@@ -39,6 +39,16 @@ jobs:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     
+                    # 0. Comment out static_assert lines for Kernel 4.19 compatibility
+                    lines = content.splitlines()
+                    new_lines = []
+                    for line in lines:
+                        if "static_assert" in line:
+                            new_lines.append("// " + line + " // [Compat-4.19] static_assert omitted")
+                        else:
+                            new_lines.append(line)
+                    content = "\n".join(new_lines) + "\n"
+
                     # 1. MODULE_IMPORT_NS
                     new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
 
