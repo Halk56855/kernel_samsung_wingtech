@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KittiSU via Submodule (Zero Core File Modification)
+    - name: Clean Integration of KittiSU & Universal Makefile Injection
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU
@@ -19,68 +19,6 @@ jobs:
         echo "[-] Adding KittiSU repository as a proper git submodule..."
         git submodule add -b testing https://github.com/terebiko/KittiSU.git KittiSU
         git submodule update --init --recursive
-
-        echo "[-] Neutralizing KittiSU strict checks..."
-        find KittiSU -name "*.mk" -exec truncate -s 0 {} \; || true
-
-        echo "[-] Patching KittiSU Kbuild to accept direct directory link..."
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("KittiSU"):
-            for f in files:
-                if f == "Kbuild":
-                    fp = os.path.join(root, f)
-                    with open(fp, "r") as fh: content = fh.read()
-                    content = content.replace("error You should use KittiSU as a git submodule", "warning Submodule check bypassed")
-                    content = content.replace("error Can\x27t find KittiSU git submodule", "warning Submodule path bypassed")
-                    with open(fp, "w") as fh: fh.write(content)
-        '
-
-        echo "[-] Patching selinux_hide.c for Samsung 4.19 avc_has_perm argument compatibility..."
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("KittiSU"):
-            for f in files:
-                if f == "selinux_hide.c":
-                    fp = os.path.join(root, f)
-                    with open(fp, "r") as fh: content = fh.read()
-                    content = content.replace("avc_has_perm(current_sid()", "avc_has_perm(&selinux_state, current_sid()")
-                    content = content.replace("avc_has_perm(mysid", "avc_has_perm(&selinux_state, mysid")
-                    with open(fp, "w") as fh: fh.write(content)
-        '
-
-        echo "[-] Robust patching of SELinux definitions, objsec.h, and context constants for Samsung 4.19..."
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("KittiSU"):
-            for f in files:
-                if f == "selinux_defs.h":
-                    fp = os.path.join(root, f)
-                    with open(fp, "w") as fh:
-                        fh.write("#ifndef __KSU_SELINUX_DEFS_H\n")
-                        fh.write("#define __KSU_SELINUX_DEFS_H\n")
-                        fh.write("#include <security.h>\n")
-                        fh.write("#include <objsec.h>\n")
-                        fh.write("extern struct selinux_state selinux_state;\n")
-                        fh.write("#define __is_selinux_enforcing() (selinux_state.enforcing)\n")
-                        fh.write("#define __setenforce(val) (selinux_state.enforcing = val)\n")
-                        fh.write("#define is_selinux_disabled() (selinux_state.disabled)\n")
-                        fh.write("#ifndef KERNEL_SU_CONTEXT\n")
-                        fh.write("#define KERNEL_SU_CONTEXT \"u:r:su:s0\"\n")
-                        fh.write("#endif\n")
-                        fh.write("#ifndef ZYGOTE_CONTEXT\n")
-                        fh.write("#define ZYGOTE_CONTEXT \"u:r:zygote:s0\"\n")
-                        fh.write("#endif\n")
-                        fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} with complete Samsung 4.19 definitions")
-
-                if f == "selinux.c":
-                    fp = os.path.join(root, f)
-                    with open(fp, "r") as fh: content = fh.read()
-                    if "static inline u32 current_sid(void)" in content:
-                        content = content.replace("static inline u32 current_sid(void)", "#ifndef current_sid\nstatic inline u32 current_sid(void)\n#endif")
-                    with open(fp, "w") as fh: fh.write(content)
-        '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
         python3 -c '
@@ -102,10 +40,47 @@ jobs:
                 shutil.rmtree("drivers/kernelsu")
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        print("[+] Symlink drivers/kernelsu created successfully pointing to", ksu_src)
+        print("[+] Symlink drivers/kernelsu created successfully")
         '
 
-        echo "[-] Wiring Kconfig and Makefile safely..."
+        echo "[-] Injecting foolproof custom Makefile to force compilation of all KittiSU files..."
+        cat << 'EOF' > drivers/kernelsu/Makefile
+        # Custom Makefile for KittiSU on Kernel 4.19 Non-GKI
+        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+
+        # Automatically find and compile all .c files in drivers/kernelsu and subdirectories recursively
+        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*")
+        obj-y += $(_ksu_c_files:.c=.o)
+        EOF
+
+        echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
+        python3 -c '
+        import os, re
+
+        # Patch rules.c
+        rules_path = "drivers/kernelsu/selinux/rules.c"
+        if os.path.exists(rules_path):
+            with open(rules_path, "r") as fh: content = fh.read()
+            content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            if "db = &policydb;" in content:
+                content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
+            else:
+                content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
+            with open(rules_path, "w") as fh: fh.write(content)
+            print("[+] Patched rules.c successfully")
+
+        # Patch selinux.c to include definitions and prevent current_sid redefinition conflict
+        selinux_path = "drivers/kernelsu/selinux/selinux.c"
+        if os.path.exists(selinux_path):
+            with open(selinux_path, "r") as fh: content = fh.read()
+            if "#include \"selinux_defs.h\"" not in content:
+                content = "#include \"selinux_defs.h\"\n" + content
+            content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
+            with open(selinux_path, "w") as fh: fh.write(content)
+            print("[+] Patched selinux.c successfully")
+        '
+
+        echo "[-] Wiring Kconfig and Makefile safely into drivers..."
         if ! grep -q "kernelsu" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
@@ -114,19 +89,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Ensuring clean makefiles for KittiSU..."
-        python3 -c '
-        import os, re
-        for r, ds, fs in os.walk("drivers/kernelsu"):
-            for f in fs:
-                if f in ("Makefile", "Kbuild") or f.endswith(".mk"):
-                    fp = os.path.join(r, f)
-                    with open(fp, "r") as fh: c = fh.read()
-                    c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
-                    c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
-                    with open(fp, "w") as fh: fh.write(c)
-        '
-        echo "[+] KittiSU successfully integrated and fully patched for Samsung 4.19!"
+        echo "[+] KittiSU successfully integrated, wired, and fully patched!"
 
     - name: Install build dependencies
       run: |
@@ -142,13 +105,17 @@ jobs:
     - name: Download GCC Toolchain
       run: |
         cd toolchain/gcc
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget -q --show-progress --retry-connrefused --waitretry=2 --read-timeout=30 -t 5 \
+          https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz || \
+        wget -q --show-progress \
+          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
     - name: Download Compatible Clang Toolchain
       run: |
         cd toolchain/clang
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget -q --show-progress \
+          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
@@ -170,7 +137,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
