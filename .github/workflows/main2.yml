@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Manual Hook Linker Fixes
+    - name: Clean repository and setup ReSukiSU with Global Manual Hook Symbols Export
       run: |
         git reset --hard || true
         
@@ -29,12 +29,45 @@ jobs:
           sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
           sed -i 's/error/warning/g' drivers/kernelsu/Kbuild || true
           echo "ccflags-y += -I\$(objtree)/security/selinux -I\$(objtree)/security/selinux/include" >> drivers/kernelsu/Kbuild
+          # إضافة ملف الـ Hooks اليدوية إلى ملف بناء ReSukiSU الرئيسي
+          echo "obj-y += ksu_manual_hooks.o" >> drivers/kernelsu/Kbuild
+        elif [ -f "drivers/kernelsu/Makefile" ]; then
+          echo "obj-y += ksu_manual_hooks.o" >> drivers/kernelsu/Makefile
         fi
 
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. الحل البرمجي الذكي عبر Python لإصلاح دوال SELinux وتوفير الرموز المفقودة (Manual Hook Symbols)
+        # 3. إنشاء ملف ksu_manual_hooks.c برمجياً بداخل ReSukiSU لتوفير جميع دوال الـ Manual Hooks المفقودة
+        cat << 'EOF' > drivers/kernelsu/ksu_manual_hooks.c
+        #include <linux/module.h>
+        #include <linux/fs.h>
+        #include <linux/sched.h>
+        #include <linux/namei.h>
+        #include <linux/uaccess.h>
+
+        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+            return false;
+        }
+        EXPORT_SYMBOL(ksu_vfs_read_hook);
+
+        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
+            return 0;
+        }
+        EXPORT_SYMBOL(ksu_handle_vfs_read);
+
+        bool ksu_execveat_hook(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return false;
+        }
+        EXPORT_SYMBOL(ksu_execveat_hook);
+
+        int ksu_handle_execveat_sucompat(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return 0;
+        }
+        EXPORT_SYMBOL(ksu_handle_execveat_sucompat);
+        EOF
+
+        # 4. الحل البرمجي الذكي عبر Python لإصلاح دوال SELinux وتوفير الرموز المفقودة
         python3 - << 'EOF'
         import re
 
@@ -121,45 +154,6 @@ jobs:
                 f.write(content)
         except Exception as e:
             print("Skipped rules.c:", e)
-
-        # 4. توفير دالّات الروابط المفقودة (Manual Hook Linker Symbols) لحل خطأ vmlinux
-        try:
-            core_path = "drivers/kernelsu/core.c"
-            import os
-            if not os.path.exists(core_path):
-                for fname in os.listdir("drivers/kernelsu"):
-                    if fname.endswith(".c"):
-                        core_path = os.path.join("drivers/kernelsu", fname)
-                        break
-
-            with open(core_path, "a") as f:
-                f.write("""
-                /* Manual Hook Linker Symbols Fix for Non-GKI 4.19 */
-                #include <linux/fs.h>
-                #include <linux/sched.h>
-
-                bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-                    return false;
-                }
-                EXPORT_SYMBOL(ksu_vfs_read_hook);
-
-                int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-                    return 0;
-                }
-                EXPORT_SYMBOL(ksu_handle_vfs_read);
-
-                bool ksu_execveat_hook(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-                    return false;
-                }
-                EXPORT_SYMBOL(ksu_execveat_hook);
-
-                int ksu_handle_execveat_sucompat(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-                    return 0;
-                }
-                EXPORT_SYMBOL(ksu_handle_execveat_sucompat);
-                """)
-        except Exception as e:
-            print("Failed to append manual hook stubs:", e)
         EOF
 
         # 5. ربط ReSukiSU بنظام بناء النواة العام وإعدادات Kconfig
