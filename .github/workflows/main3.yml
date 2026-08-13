@@ -33,53 +33,7 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. إنشاء طبقة التوافق الشاملة (compat_stubs.c) لحل جميع أخطاء الروابط والوظائف المفقودة في نواة 4.19
-        cat << 'EOF' > drivers/kernelsu/compat_stubs.c
-        #include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        #include <linux/sched.h>
-        #include <linux/pid.h>
-        #include <linux/uaccess.h>
-
-        #ifndef strncpy_from_user_nofault
-        long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count) {
-            return strncpy_from_unsafe(dst, (const void __user *)unsafe_addr, count);
-        }
-        #endif
-
-        #ifndef copy_from_user_nofault
-        long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size) {
-            return probe_kernel_read(dst, (const void __user *)src, size);
-        }
-        #endif
-
-        #ifndef copy_to_user_nofault
-        long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size) {
-            return probe_kernel_write((void __user *)dst, src, size);
-        }
-        #endif
-
-        struct pid *task_pgrp(struct task_struct *task) {
-            return task && task->signal ? task->signal->pgrp : NULL;
-        }
-
-        struct pid *task_session(struct task_struct *task) {
-            return task && task->signal ? task->signal->session : NULL;
-        }
-
-        void *selinux_cred = NULL;
-
-        int handle_sepolicy(void *arg) {
-            return 0;
-        }
-
-        int ksu_install_file_wrapper(void) {
-            return 0;
-        }
-        EOF
-
-        # 4. توفير ملف file_wrapper.c توافقي ومتكامل خصيصاً لنواة 4.19 لتجنب أي أخطاء هيكلية
+        # 3. توفير ملف file_wrapper.c توافقي ومتكامل خصيصاً لنواة 4.19 لتجنب أي أخطاء هيكلية
         if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
           cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
         #include <linux/fs.h>
@@ -107,8 +61,8 @@ jobs:
         EOF
         fi
 
-        # 5. إصلاح توافق SECCOMP_ARCH_NATIVE_NR لنواة 4.19 داخل seccomp_cache.c
-        python3 - << 'EOF'
+        # 4. إصلاح توافق SECCOMP_ARCH_NATIVE_NR لنواة 4.19 داخل seccomp_cache.c
+        python3 -c '
         import os
         path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(path):
@@ -118,12 +72,12 @@ jobs:
             content = fix + content
             with open(path, "w") as f:
                 f.write(content)
-        EOF
+        '
 
-        # 6. تصحيح تضمينات uapi آلياً لتتوافق تماماً مع بيئة نواة 4.19 وتجنب أخطاء mount.h
+        # 5. تصحيح تضمينات uapi آلياً لتتوافق تماماً مع بيئة نواة 4.19 وتجنب أخطاء mount.h
         find drivers/kernelsu -type f -name "*.c" -o -name "*.h" | xargs sed -i 's|#include <uapi/|#include <|g'
 
-        # 7. إصلاح توافق pkg_observer.c ليتناسب تماماً مع نظام fsnotify في نواة 4.19
+        # 6. إصلاح توافق pkg_observer.c ليتناسب تماماً مع نظام fsnotify في نواة 4.19
         if [ -f "drivers/kernelsu/manager/pkg_observer.c" ]; then
           cat << 'EOF' > drivers/kernelsu/manager/pkg_observer.c
         #include <linux/fs.h>
@@ -171,8 +125,8 @@ jobs:
         EOF
         fi
 
-        # 8. إصلاح توافق TWA_RESUME و fallthrough داخل allowlist.c لنواة 4.19
-        python3 - << 'EOF'
+        # 7. إصلاح توافق TWA_RESUME و fallthrough داخل allowlist.c لنواة 4.19
+        python3 -c '
         import os
         path = "drivers/kernelsu/policy/allowlist.c"
         if os.path.exists(path):
@@ -183,94 +137,10 @@ jobs:
             content = content.replace("fallthrough;", "/* fallthrough */;")
             with open(path, "w") as f:
                 f.write(content)
-        EOF
+        '
 
-        # 9. معالجة وتجاوز خطأ TWA_RESUME في supercall.c لنواة 4.19
-        python3 - << 'EOF'
-        import os
-        path = "drivers/kernelsu/supercall/supercall.c"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-            fix = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n"
-            if fix not in content:
-                content = fix + content
-            with open(path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 10. معالجة وتجاوز خطأ filter_count في app_profile.c لنواة 4.19 القديمة
-        python3 - << 'EOF'
-        import os
-        path = "drivers/kernelsu/policy/app_profile.c"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-            content = content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); */")
-            with open(path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 11. معالجة وتجاوز أخطاء SELinux (sepolicy.c و rules.c و selinux_hide.c) لنواة 4.19 القديمة بشكل آمن
-        python3 - << 'EOF'
-        import os
-        rules_path = "drivers/kernelsu/selinux/rules.c"
-        if os.path.exists(rules_path):
-            with open(rules_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        int ksu_selinux_init(void) { return 0; }
-        void ksu_apply_selinux_rules(void) {}
-        """)
-
-        sepolicy_path = "drivers/kernelsu/selinux/sepolicy.c"
-        if os.path.exists(sepolicy_path):
-            with open(sepolicy_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        """)
-
-        hide_path = "drivers/kernelsu/feature/selinux_hide.c"
-        if os.path.exists(hide_path):
-            with open(hide_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        int ksu_selinux_hide_init(void) { return 0; }
-        void ksu_selinux_hide_exit(void) {}
-        """)
-        EOF
-
-        # 12. معالجة أخطاء dispatch.c وتجاوز tasklist_lock
-        python3 - << 'EOF'
-        import os
-        dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
-        if os.path.exists(dispatch_path):
-            with open(dispatch_path, "r") as f:
-                content = f.read()
-            
-            content = content.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
-            content = content.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
-            
-            if "extern struct task_struct init_task;" not in content:
-                content = "extern struct task_struct init_task;\n" + content
-                
-            with open(dispatch_path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 13. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
+        # 8. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
-        cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
-        #ifndef _KSU_LINUX_MINMAX_H
-        #define _KSU_LINUX_MINMAX_H
-        #include <linux/kernel.h>
-        #include <linux/types.h>
-        #endif
-        EOF
-
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_LINUX_PGTABLE_H
         #define _KSU_LINUX_PGTABLE_H
@@ -279,19 +149,18 @@ jobs:
         #endif
         EOF
 
-        # 14. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 9. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 15. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 10. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 16. إدراج ملف compat_stubs.o في ملف الـ Makefile الخاص بـ KernelSU
+        # 11. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
         if [ -f "drivers/kernelsu/Makefile" ]; then
-          echo 'obj-y += compat_stubs.o' >> drivers/kernelsu/Makefile
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
           echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
