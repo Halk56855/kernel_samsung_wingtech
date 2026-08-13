@@ -91,9 +91,15 @@ jobs:
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
                     content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-                    content = re.sub(r"db\s*=\s*[^;]+;", "struct selinux_policy *policy = rcu_dereference_protected(selinux_state.policy, lockdep_is_held(&selinux_state.policy_mutex));\n\tdb = &policy->policydb;", content)
+                    
+                    # استبدال سطر جلب قاعدة البيانات بالطريقة السليمة المتوافقة مع نواة 4.19
+                    if "db = &policydb;" in content:
+                        content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
+                    else:
+                        content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
+                        
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp} to use policy->policydb safely for Kernel 4.19")
+                    print(f"[+] Patched {fp} to use global policydb safely for Kernel 4.19")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
