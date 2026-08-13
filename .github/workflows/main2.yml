@@ -11,152 +11,25 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Global Manual Hook Symbols Export
+    - name: Clean repository completely to pristine state
       run: |
-        git reset --hard || true
-        
-        # 1. استنساخ ReSukiSU وتجهيز المجلد بنجاح تام
+        git clean -fdx
+        git reset --hard
+
+    - name: Setup ReSukiSU cleanly without modifying system drivers
+      run: |
+        # تنظيف مجلد drivers/kernelsu واستنساخ ReSukiSU بالطريقة القياسية النظيفة
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي والحفاظ على نظام بناء ReSukiSU الأصلي
-        if [ -d "drivers/kernelsu/kernel" ]; then
-          cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
+        # استخدام السكريبت الرسمي المدمج داخل ReSukiSU إن وجد لتثبيت الخطافات القياسية
+        if [ -f "drivers/kernelsu/kernel/setup.sh" ]; then
+          bash drivers/kernelsu/kernel/setup.sh || true
+        elif [ -f "drivers/kernelsu/setup.sh" ]; then
+          bash drivers/kernelsu/setup.sh || true
         fi
 
-        # تجاوز فحص الـ Git Submodule الإلزامي في Kbuild الخاص بـ ReSukiSU
-        if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
-          sed -i 's/error/warning/g' drivers/kernelsu/Kbuild || true
-          echo "ccflags-y += -I\$(objtree)/security/selinux -I\$(objtree)/security/selinux/include" >> drivers/kernelsu/Kbuild
-          # إضافة ملف الـ Hooks اليدوية إلى ملف بناء ReSukiSU الرئيسي
-          echo "obj-y += ksu_manual_hooks.o" >> drivers/kernelsu/Kbuild
-        elif [ -f "drivers/kernelsu/Makefile" ]; then
-          echo "obj-y += ksu_manual_hooks.o" >> drivers/kernelsu/Makefile
-        fi
-
-        # تجاوز فحوصات الأدوات الخارجية إن وجدت
-        find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
-
-        # 3. إنشاء ملف ksu_manual_hooks.c برمجياً بداخل ReSukiSU لتوفير جميع دوال الـ Manual Hooks المفقودة
-        cat << 'EOF' > drivers/kernelsu/ksu_manual_hooks.c
-        #include <linux/module.h>
-        #include <linux/fs.h>
-        #include <linux/sched.h>
-        #include <linux/namei.h>
-        #include <linux/uaccess.h>
-
-        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-            return false;
-        }
-        EXPORT_SYMBOL(ksu_vfs_read_hook);
-
-        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-            return 0;
-        }
-        EXPORT_SYMBOL(ksu_handle_vfs_read);
-
-        bool ksu_execveat_hook(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return false;
-        }
-        EXPORT_SYMBOL(ksu_execveat_hook);
-
-        int ksu_handle_execveat_sucompat(int *fd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return 0;
-        }
-        EXPORT_SYMBOL(ksu_handle_execveat_sucompat);
-        EOF
-
-        # 4. الحل البرمجي الذكي عبر Python لإصلاح دوال SELinux وتوفير الرموز المفقودة
-        python3 - << 'EOF'
-        import re
-
-        # Fix selinux_defs.h
-        try:
-            with open("drivers/kernelsu/selinux/selinux_defs.h", "r") as f:
-                content = f.read()
-            content = content.replace("selinux_enforcing", "selinux_state.enforcing")
-            with open("drivers/kernelsu/selinux/selinux_defs.h", "w") as f:
-                f.write(content)
-        except Exception as e:
-            print("Skipped selinux_defs.h:", e)
-
-        # Fix selinux.c
-        try:
-            with open("drivers/kernelsu/selinux/selinux.c", "r") as f:
-                content = f.read()
-            content = content.replace("static inline u32 current_sid(void)", "static inline u32 ksu_current_sid(void)")
-            content = content.replace("__is_selinux_enforcing", "selinux_state.enforcing")
-            content = content.replace("selinux_is_enforcing", "selinux_state.enforcing")
-            content = content.replace("selinux_state.enforcing()", "selinux_state.enforcing")
-            with open("drivers/kernelsu/selinux/selinux.c", "w") as f:
-                f.write(content)
-        except Exception as e:
-            print("Skipped selinux.c:", e)
-
-        # Fix selinux_hide.c
-        try:
-            path = "drivers/kernelsu/feature/selinux_hide.c"
-            with open(path, "r") as f:
-                lines = f.readlines()
-            
-            new_lines = []
-            for line in lines:
-                if "avc_has_perm" in line and not "static" in line and not "#define" in line and not "int avc_has_perm" in line and not "&selinux_state" in line:
-                    line = re.sub(r'\bavc_has_perm\s*\(\s*', 'avc_has_perm(&selinux_state, ', line)
-                new_lines.append(line)
-
-            content = "".join(new_lines)
-
-            missing_wrappers = """
-            #include <linux/string.h>
-
-            static inline int ksu_security_context_to_sid(const char *scontext, u32 scontext_len, u32 *sid, gfp_t gfp) {
-                if (!scontext) return -EINVAL;
-                return security_context_to_sid(&selinux_state, scontext, scontext_len, sid, gfp);
-            }
-
-            static inline int ksu_security_context_str_to_sid(const char *scontext, u32 *sid, gfp_t gfp) {
-                if (!scontext) return -EINVAL;
-                return security_context_to_sid(&selinux_state, scontext, strlen(scontext), sid, gfp);
-            }
-
-            static inline int ksu_security_sid_to_context(u32 sid, char **scontext, u32 *scontext_len) {
-                return security_sid_to_context(&selinux_state, sid, scontext, scontext_len);
-            }
-
-            static inline void ksu_security_compute_av_user(u32 ssid, u32 tsid, u16 tclass, struct av_decision *avd) {
-                security_compute_av_user(&selinux_state, ssid, tsid, tclass, avd);
-            }
-            """
-
-            last_include = 0
-            for m in re.finditer(r'#include\s+<[^>]+>', content):
-                last_include = m.end()
-
-            if last_include > 0:
-                content = content[:last_include] + "\n" + missing_wrappers + "\n" + content[last_include:]
-            else:
-                content = missing_wrappers + "\n" + content
-
-            with open(path, "w") as f:
-                f.write(content)
-        except Exception as e:
-            print("Skipped selinux_hide.c:", e)
-
-        # Fix rules.c
-        try:
-            with open("drivers/kernelsu/selinux/rules.c", "r") as f:
-                content = f.read()
-            content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-            content = content.replace("db = &policydb;", "db = &selinux_state.ss->policydb;")
-            with open("drivers/kernelsu/selinux/rules.c", "w") as f:
-                f.write(content)
-        except Exception as e:
-            print("Skipped rules.c:", e)
-        EOF
-
-        # 5. ربط ReSukiSU بنظام بناء النواة العام وإعدادات Kconfig
+        # ربط ReSukiSU بنظام البناء العام للنواة بشكل نظيف فقط
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
@@ -202,8 +75,6 @@ jobs:
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
         echo "SUBARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion" >> $GITHUB_ENV
-        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Build kernel
       run: |
@@ -235,22 +106,12 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        # توليد ملفات SELinux الأساسية وملف flask.h مسبقاً لضمان توفرها أثناء البناء
-        mkdir -p out/security/selinux
-        make -C $(pwd) O=$(pwd)/out security/selinux/flask.h || true
-        make -C $(pwd) O=$(pwd)/out prepare
-
         make -C $(pwd) O=$(pwd)/out \
           LLVM=1 \
           LLVM_IAS=1 \
           CROSS_COMPILE=aarch64-none-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          LLVM=1 \
-          LLVM_IAS=1 \
-          CROSS_COMPILE=aarch64-none-linux-gnu- \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j1
+          -j$(nproc)
 
     - name: Clone AnyKernel3
       run: |
