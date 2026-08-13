@@ -69,9 +69,9 @@ jobs:
         print("[+] Symlink drivers/kernelsu created successfully")
         '
 
-        echo "[-] Injecting manual hook compatibility layer for 4.19..."
+        echo "[-] Injecting manual hook compatibility layer for 4.19 cleanly..."
         cat << 'EOF' > drivers/kernelsu/manual_hook_compat.c
-        #linux
+        #include <linux/module.h>
         #include <linux/types.h>
         #include <linux/fs.h>
         #include <linux/sched.h>
@@ -93,8 +93,6 @@ jobs:
             return 0;
         }
         EOF
-        # Quick fix for #linux syntax typo in comment/directive above
-        sed -i 's/#linux/#include <linux/module.h>/g' drivers/kernelsu/manual_hook_compat.c
 
         echo "[-] Injecting foolproof custom Makefile to force compilation of all KittiSU files..."
         cat << 'EOF' > drivers/kernelsu/Makefile
