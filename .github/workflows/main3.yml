@@ -33,7 +33,7 @@ jobs:
         
         rm -rf temp_sukisu
 
-        # 3. إنشاء ملف التوافق الرأسي والرئيسي (compat_stubs.h) لضمان توفر كافة الدوال والمتغيرات المفقودة في نواة 4.19
+        # 3. إنشاء ملف التوافق الرأسي والرئيسي (compat_stubs.h) لضمان توفر كافة الإعلانات
         cat << 'EOF' > drivers/kernelsu/compat_stubs.h
         #ifndef __KSU_COMPAT_STUBS_H__
         #define __KSU_COMPAT_STUBS_H__
@@ -46,45 +46,23 @@ jobs:
         #include <linux/uaccess.h>
 
         #ifndef strncpy_from_user_nofault
-        static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_from_user_inatomic(dst, unsafe_addr, count);
-            pagefault_enable();
-            return ret < 0 ? ret : count;
-        }
+        long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count);
         #endif
 
         #ifndef copy_from_user_nofault
-        static inline long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_from_user_inatomic(dst, src, size);
-            pagefault_enable();
-            return ret;
-        }
+        long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size);
         #endif
 
         #ifndef copy_to_user_nofault
-        static inline long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_to_user_inatomic(dst, src, size);
-            pagefault_enable();
-            return ret;
-        }
+        long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size);
         #endif
 
         #ifndef task_pgrp
-        static inline struct pid *task_pgrp(struct task_struct *task) {
-            return task && task->signal ? task->signal->pgrp : NULL;
-        }
+        struct pid *task_pgrp(struct task_struct *task);
         #endif
 
         #ifndef task_session
-        static inline struct pid *task_session(struct task_struct *task) {
-            return task && task->signal ? task->signal->session : NULL;
-        }
+        struct pid *task_session(struct task_struct *task);
         #endif
 
         extern void *selinux_cred;
@@ -94,7 +72,7 @@ jobs:
         #endif
         EOF
 
-        # 4. إنشاء ملف التنفيذ المرتبط (compat_stubs.c) للرموز العامة
+        # 4. إنشاء ملف التنفيذ المرتبط (compat_stubs.c) لتوفير الرموز والوظائف الحقيقية لضمان عدم وجود أي undefined reference
         cat << 'EOF' > drivers/kernelsu/compat_stubs.c
         #include "compat_stubs.h"
 
@@ -106,6 +84,38 @@ jobs:
 
         int ksu_install_file_wrapper(void) {
             return 0;
+        }
+
+        long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count) {
+            long ret;
+            pagefault_disable();
+            ret = __copy_from_user_inatomic(dst, unsafe_addr, count);
+            pagefault_enable();
+            return ret < 0 ? ret : count;
+        }
+
+        long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size) {
+            long ret;
+            pagefault_disable();
+            ret = __copy_from_user_inatomic(dst, src, size);
+            pagefault_enable();
+            return ret;
+        }
+
+        long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size) {
+            long ret;
+            pagefault_disable();
+            ret = __copy_to_user_inatomic(dst, src, size);
+            pagefault_enable();
+            return ret;
+        }
+
+        struct pid *task_pgrp(struct task_struct *task) {
+            return task && task->signal ? task->signal->pgrp : NULL;
+        }
+
+        struct pid *task_session(struct task_struct *task) {
+            return task && task->signal ? task->signal->session : NULL;
         }
         EOF
 
@@ -330,11 +340,11 @@ jobs:
           fi
         fi
 
-        # 17. دمج وتضمين compat_stubs آلياً لكل ملفات البناء عبر ccflags وطبقة obj-y
+        # 17. إضافة compat_stubs.o في ملف الـ Makefile الخاص بـ KernelSU
         if [ -f "drivers/kernelsu/Makefile" ]; then
           echo 'obj-y += compat_stubs.o' >> drivers/kernelsu/Makefile
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
-          echo 'ccflags-y += -include $(src)/compat_stubs.h -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
+          echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
         fi
 
         if ! grep -q "kernelsu" drivers/Makefile; then
@@ -380,7 +390,8 @@ jobs:
         echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w" >> $GITHUB_ENV
+        # تضمين compat_stubs.h عالمياً لجميع ملفات النواة لتجنب أي أخطاء ربط
+        echo "KCFLAGS=-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" >> $GITHUB_ENV
         echo "HOSTCFLAGS=-w" >> $GITHUB_ENV
         echo "LD=$GCC_BIN/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
@@ -388,7 +399,7 @@ jobs:
     - name: Build Non-GKI Kernel 4.19
       run: |
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           rsuntk-a04_defconfig
 
@@ -408,11 +419,11 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          KCFLAGS="-w -include $(pwd)/drivers/kernelsu/compat_stubs.h" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
           LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
