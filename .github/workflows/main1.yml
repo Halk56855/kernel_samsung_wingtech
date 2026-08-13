@@ -79,7 +79,7 @@ jobs:
                         fh.write("#define KSU_FILE_CONTEXT \"u:object_r:system_file:s0\"\n")
                         fh.write("#endif\n")
                         fh.write("#endif\n")
-                    print(f"[+] Overwritten {fp} with policydb.h inclusion")
+                    print(f"[+] Overwritten {fp}")
 
                 if f == "selinux.c":
                     fp = os.path.join(root, f)
@@ -91,8 +91,10 @@ jobs:
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
                     content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+                    content = content.replace("db = &policydb;", "db = &selinux_state.data.policydb;")
+                    content = content.replace("db = policydb;", "db = selinux_state.data.policydb;")
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp}")
+                    print(f"[+] Patched {fp} to use selinux_state.data.policydb")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
