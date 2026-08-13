@@ -16,12 +16,12 @@ jobs:
         git clean -fdx
         git reset --hard
 
-    - name: Setup ReSukiSU Automatically & Bypass Submodule Check for Kernel 4.19
+    - name: Setup ReSukiSU Automatically & Clean SuSFS/KPM for Kernel 4.19
       run: |
         # 1. تنظيف مجلد kernelsu مسبقاً
         rm -rf drivers/kernelsu
 
-        # 2. استنساخ ReSukiSU بالطريقة القياسية النظيفة
+        # 2. استنساخ ReSukiSU
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
         # 3. تسوية الهيكل البرمجي إذا كانت الملفات داخل مجلد فرعي
@@ -29,25 +29,19 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 4. تجاوز وتعطيل فحص الـ submodule الإجباري تفادياً لأي أخطاء نصية وبدون أي اقتباسات خاطئة
+        # 4. تطهير وإزالة أي شروط تخص SuSFS أو KPM لتجنب خطأ extraneous endif نهائياً
         if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
-          sed -i '/KSU_SRC/d' drivers/kernelsu/Kbuild || true
+          sed -i '/susfs/d' drivers/kernelsu/Kbuild || true
+          sed -i '/kpm/d' drivers/kernelsu/Kbuild || true
+          sed -i '/CONFIG_KSU_SUSFS/d' drivers/kernelsu/Kbuild || true
         fi
 
-        # 5. فرض ملف Kconfig نظيف وبسيط جداً لتعطيل KPM و SuSFS ومنع أي أخطاء توافقية مع نواة 4.19
-        cat << 'EOF' > drivers/kernelsu/Kconfig
-        config KSU
-            bool "KernelSU support"
-            default y
-        EOF
-
-        # 6. التأكد من وجود ملف Makefile لـ ReSukiSU
-        if [ ! -f "drivers/kernelsu/Makefile" ] && [ ! -f "drivers/kernelsu/Kbuild" ]; then
-          echo "obj-y += kernelsu/" > drivers/kernelsu/Makefile
+        if [ -f "drivers/kernelsu/Kconfig" ]; then
+          sed -i '/susfs/d' drivers/kernelsu/Kconfig || true
+          sed -i '/kpm/d' drivers/kernelsu/Kconfig || true
         fi
 
-        # 7. ربط ReSukiSU بنظام البناء العام للنواة بشكل آمن ونظيف تماماً
+        # 5. ربط ReSukiSU بنظام البناء العام للنواة بشكل آمن
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
@@ -100,6 +94,7 @@ jobs:
         DEFCONFIG_FILE="arch/arm64/configs/rsuntk-a04_defconfig"
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
@@ -113,6 +108,7 @@ jobs:
         cat << 'EOF' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
+        CONFIG_KSU_MANUAL_HOOK=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
