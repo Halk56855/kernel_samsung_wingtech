@@ -36,9 +36,11 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying AI Auto-Patch script for Kernel 4.19..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
+
+        # 1. Patch task_work_add / TWA_RESUME across all KSU files
         for filepath in glob.glob('drivers/kernelsu/**/*.c', recursive=True) + glob.glob('KernelSU/**/*.c', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -49,24 +51,39 @@ jobs:
                         f.write(content)
             except Exception as e:
                 pass
+
+        # 2. Robust structural and definition patch for sucompat.c
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
                 code = f.read()
-            patch_definitions = """
+            
+            forced_patch = """
         #ifndef KSUD_PATH
         #define KSUD_PATH "/sbin/ksud"
         #endif
+
         #ifndef KSU_FEATURE_SU_COMPAT
         #define KSU_FEATURE_SU_COMPAT 0
         #endif
-        #ifndef struct_path_defined
-        #define struct_path_defined
-        struct path;
+
+        #ifndef struct_ksu_feature_handler_defined
+        #define struct_ksu_feature_handler_defined
+        struct ksu_feature_handler {
+            int feature_id;
+            int (*enabled)(void);
+            int (*set_enabled)(bool enable);
+        };
         #endif
         """
-            if 'KSUD_PATH' not in code:
-                code = patch_definitions + code
+            # Insert after the last include statement to ensure all types/headers are resolved first
+            last_include_idx = code.rfind('#include')
+            if last_include_idx != -1:
+                end_of_line = code.find('\n', last_include_idx)
+                code = code[:end_of_line + 1] + forced_patch + code[end_of_line + 1:]
+            else:
+                code = forced_patch + code
+
             headers_to_add = """
         #include <linux/types.h>
         #include <linux/sched.h>
@@ -79,9 +96,10 @@ jobs:
         """
             if '#include <linux/path.h>' not in code:
                 code = headers_to_add + code
+
             with open(sucompat_path, 'w') as f:
                 f.write(code)
-            print('Successfully patched sucompat.c with Kernel 4.19 structural definitions.')
+            print('Successfully patched sucompat.c with robust Kernel 4.19 compatibility definitions.')
         EOF
 
         python3 patch_ksu.py
@@ -103,13 +121,13 @@ jobs:
     - name: Download GCC Toolchain
       run: |
         cd toolchain/gcc
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget -q https://github.1s.best/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
     - name: Download Compatible Clang Toolchain
       run: |
         cd toolchain/clang
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget -q https://github.1s.best/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
