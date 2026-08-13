@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Complete SELinux State Integration
+    - name: Clean repository and setup ReSukiSU with Python-powered Kernel 4.19 SELinux Fixes
       run: |
         git reset --hard || true
         
@@ -34,42 +34,75 @@ jobs:
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb وتصحيح تمرير &selinux_state لنواة 4.19
-        SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
-        if [ -f "$SEL_DEFS_FILE" ]; then
-          sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
-        fi
+        # 3. الحل البرمجي الذكي عبر Python لتصحيح كافة أخطاء SELinux وتواقيع الدوال لنواة 4.19 بدقة مطلقة
+        python3 - << 'EOF'
+        import re
 
-        SEL_FILE="drivers/kernelsu/selinux/selinux.c"
-        if [ -f "$SEL_FILE" ]; then
-          sed -i 's/static inline u32 current_sid(void)/static inline u32 ksu_current_sid(void)/g' "$SEL_FILE"
-          sed -i 's/__is_selinux_enforcing/selinux_state.enforcing/g' "$SEL_FILE" || true
-          sed -i 's/selinux_is_enforcing/selinux_state.enforcing/g' "$SEL_FILE" || true
-          sed -i 's/selinux_state\.enforcing()/selinux_state.enforcing/g' "$SEL_FILE" || true
-        fi
+        # Fix selinux_defs.h
+        try:
+            with open("drivers/kernelsu/selinux/selinux_defs.h", "r") as f:
+                content = f.read()
+            content = content.replace("selinux_enforcing", "selinux_state.enforcing")
+            with open("drivers/kernelsu/selinux/selinux_defs.h", "w") as f:
+                f.write(content)
+        except Exception as e:
+            print("Skipped selinux_defs.h:", e)
 
-        SEL_HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
-        if [ -f "$SEL_HIDE_FILE" ]; then
-          sed -i 's/avc_has_perm(current_sid()/avc_has_perm(\&selinux_state, current_sid()/g' "$SEL_HIDE_FILE"
-          sed -i 's/avc_has_perm(mysid/avc_has_perm(\&selinux_state, mysid/g' "$SEL_HIDE_FILE"
-          sed -i 's/ksu_security_context_to_sid/security_context_to_sid/g' "$SEL_HIDE_FILE"
-          sed -i 's/ksu_security_sid_to_context/security_sid_to_context/g' "$SEL_HIDE_FILE"
-          sed -i 's/ksu_security_context_str_to_sid/security_context_to_sid/g' "$SEL_HIDE_FILE"
-          sed -i 's/ksu_security_compute_av_user/security_compute_av_user/g' "$SEL_HIDE_FILE"
-          
-          # حقن &selinux_state تلقائياً كمعامل أول لدوال الأمان في نواة 4.19
-          sed -i 's/security_context_to_sid(\([^&]\)/security_context_to_sid(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
-          sed -i 's/security_sid_to_context(\([^&]\)/security_sid_to_context(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
-          sed -i 's/security_compute_av_user(\([^&]\)/security_compute_av_user(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
-        fi
+        # Fix selinux.c
+        try:
+            with open("drivers/kernelsu/selinux/selinux.c", "r") as f:
+                content = f.read()
+            content = content.replace("static inline u32 current_sid(void)", "static inline u32 ksu_current_sid(void)")
+            content = content.replace("__is_selinux_enforcing", "selinux_state.enforcing")
+            content = content.replace("selinux_is_enforcing", "selinux_state.enforcing")
+            content = content.replace("selinux_state.enforcing()", "selinux_state.enforcing")
+            with open("drivers/kernelsu/selinux/selinux.c", "w") as f:
+                f.write(content)
+        except Exception as e:
+            print("Skipped selinux.c:", e)
 
-        RULES_FILE="drivers/kernelsu/selinux/rules.c"
-        if [ -f "$RULES_FILE" ]; then
-          sed -i 's/selinux_status_update_policyload(0)/selinux_status_update_policyload(\&selinux_state, 0)/g' "$RULES_FILE"
-          sed -i 's/db = &policydb;/db = \&selinux_state.ss->policydb;/g' "$RULES_FILE"
-        fi
+        # Fix selinux_hide.c (إزالة التصريحات الوهمية الخاطئة وتصحيح استدعاءات الدوال مع &selinux_state)
+        try:
+            path = "drivers/kernelsu/feature/selinux_hide.c"
+            with open(path, "r") as f:
+                lines = f.readlines()
+            
+            new_lines = []
+            for line in lines:
+                if any(fn in line for fn in ["security_context_to_sid", "security_sid_to_context", "security_compute_av_user"]) and line.strip().startswith("static "):
+                    continue
+                new_lines.append(line)
+            content = "".join(new_lines)
 
-        # 4. ربط ReSukiSU بنظام بناء النواة العام وإعدادات Kconfig لضمان عدم حذف المتغيرات
+            content = content.replace("avc_has_perm(current_sid(", "avc_has_perm(&selinux_state, current_sid(")
+            content = content.replace("avc_has_perm(mysid", "avc_has_perm(&selinux_state, mysid")
+            content = content.replace("ksu_security_context_to_sid", "security_context_to_sid")
+            content = content.replace("ksu_security_sid_to_context", "security_sid_to_context")
+            content = content.replace("ksu_security_context_str_to_sid", "security_context_to_sid")
+            content = content.replace("ksu_security_compute_av_user", "security_compute_av_user")
+
+            content = re.sub(r'\bsecurity_context_to_sid\s*\(\s*(?!struct\s+selinux_state|&selinux_state)', 'security_context_to_sid(&selinux_state, ', content)
+            content = re.sub(r'\bsecurity_sid_to_context\s*\(\s*(?!struct\s+selinux_state|&selinux_state)', 'security_sid_to_context(&selinux_state, ', content)
+            content = re.sub(r'\bsecurity_compute_av_user\s*\(\s*(?!struct\s+selinux_state|&selinux_state)', 'security_compute_av_user(&selinux_state, ', content)
+
+            with open(path, "w") as f:
+                f.write(content)
+        except Exception as e:
+            print("Skipped selinux_hide.c:", e)
+
+        # Fix rules.c
+        try:
+            with open("drivers/kernelsu/selinux/rules.c", "r") as f:
+                content = f.read()
+            content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            content = content.replace("db = &policydb;", "db = &selinux_state.ss->policydb;")
+            with open("drivers/kernelsu/selinux/rules.c", "w") as f:
+                f.write(content)
+        except Exception as e:
+            print("Skipped rules.c:", e)
+        EOF
+
+        # 4. ربط ReSukiSU بنظام بناء النواة العام وإعدادات Kconfig
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
