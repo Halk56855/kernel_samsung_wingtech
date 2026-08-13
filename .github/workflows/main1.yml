@@ -91,10 +91,9 @@ jobs:
                     fp = os.path.join(root, f)
                     with open(fp, "r") as fh: content = fh.read()
                     content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-                    content = content.replace("db = &policydb;", "db = &selinux_state.data.policydb;")
-                    content = content.replace("db = policydb;", "db = selinux_state.data.policydb;")
+                    content = re.sub(r"db\s*=\s*[^;]+;", "struct selinux_policy *policy = rcu_dereference_protected(selinux_state.policy, lockdep_is_held(&selinux_state.policy_mutex));\n\tdb = &policy->policydb;", content)
                     with open(fp, "w") as fh: fh.write(content)
-                    print(f"[+] Patched {fp} to use selinux_state.data.policydb")
+                    print(f"[+] Patched {fp} to use policy->policydb safely for Kernel 4.19")
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
@@ -117,7 +116,7 @@ jobs:
                 shutil.rmtree("drivers/kernelsu")
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        print("[+] Symlink drivers/kernelsu created successfully pointing to", ksu_src)
+        print("[+] Symlink drivers/kernelsu created successfully")
         '
 
         echo "[-] Wiring Kconfig and Makefile safely..."
@@ -139,9 +138,9 @@ jobs:
                     with open(fp, "r") as fh: c = fh.read()
                     c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
                     c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
-                    with open(fp, "w") as fh: fh.write(c)
+                    with open(fp, "w") as fh: c = fh.write(c)
         '
-        echo "[+] KittiSU successfully integrated and fully patched for Samsung 4.19!"
+        echo "[+] KittiSU successfully integrated and fully patched!"
 
     - name: Install build dependencies
       run: |
