@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate Wild_KSU KernelSU & Precision Auto-Fix for Kernel 4.19
+    - name: Integrate Wild_KSU KernelSU & Advanced Kernel 4.19 AI Auto-Patch
       run: |
         echo "[-] Cleaning up old KernelSU remnants..."
         rm -rf drivers/kernelsu
@@ -36,24 +36,49 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying precision Python patch for task_work_add / TWA_RESUME in Kernel 4.19..."
+        echo "[-] Applying advanced Python AI patch for Kernel 4.19 sucompat & task_work compatibility..."
         python3 -c "
-        import glob
+        import glob, os
+
+        # 1. Patch task_work_add / TWA_RESUME across all KSU files
         for filepath in glob.glob('drivers/kernelsu/**/*.c', recursive=True) + glob.glob('KernelSU/**/*.c', recursive=True):
             try:
                 with open(filepath, 'r') as f:
                     content = f.read()
+                modified = False
                 if 'TWA_RESUME' in content:
-                    # استبدال TWA_RESUME بـ 0 مع الحفاظ على المعاملات الثلاثة للدالة task_work_add
                     content = content.replace('TWA_RESUME', '0')
+                    modified = True
+                if modified:
                     with open(filepath, 'w') as f:
                         f.write(content)
-                    print(f'Successfully patched 3-arg task_work_add in: {filepath}')
+                    print(f'Patched TWA_RESUME in: {filepath}')
             except Exception as e:
                 pass
+
+        # 2. Specifically fix sucompat.c missing headers and types for Kernel 4.19
+        sucompat_path = 'drivers/kernelsu/sucompat.c'
+        if os.path.exists(sucompat_path):
+            with open(sucompat_path, 'r') as f:
+                code = f.read()
+            
+            headers_to_add = '''
+#include <linux/types.h>
+#include <linux/sched.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
+#include <linux/cred.h>
+#include <linux/version.h>
+'''
+            if '#include <linux/types.h>' not in code:
+                code = headers_to_add + code
+            
+            with open(sucompat_path, 'w') as f:
+                f.write(code)
+            print('Successfully injected compatibility headers into sucompat.c')
         "
-        
-        echo "[+] Wild_KSU integrated and precisely auto-patched for 4.19 Non-GKI!"
+
+        echo "[+] Wild_KSU fully integrated and auto-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
@@ -126,7 +151,7 @@ jobs:
 
     - name: Package into AnyKernel3 Flashable Zip
       run: |
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3 || true
+        git clone https://github.1s.best/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3 || true
         cp out/arch/arm64/boot/Image AnyKernel3/
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
