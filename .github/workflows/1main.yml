@@ -71,8 +71,9 @@ jobs:
         #define struct_ksu_feature_handler_defined
         struct ksu_feature_handler {
             int feature_id;
-            int (*enabled)(void);
-            int (*set_enabled)(bool enable);
+            const char *name;
+            int (*get_handler)();
+            int (*set_handler)();
         };
         #endif
         """
