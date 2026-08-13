@@ -173,7 +173,7 @@ jobs:
         """)
         EOF
 
-        # 10. معالجة أخطاء dispatch.c وتوفير تعريف بديل آمن لـ tasklist_lock و init_task في نواة 4.19
+        # 10. معالجة أخطاء dispatch.c وإضافة التصريح الخارجي لـ init_task وتجاوز tasklist_lock
         python3 - << 'EOF'
         import os
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
@@ -181,12 +181,12 @@ jobs:
             with open(dispatch_path, "r") as f:
                 content = f.read()
             
-            # إصلاح الدوال التي تستخدم tasklist_lock أو init_task لتجنب أخطاء البناء في نواتج Wingtech 4.19
             content = content.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
             content = content.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
-            content = content.replace("task_pgrp(&init_task)", "task_pgrp(&init_task) /* compat */")
-            content = content.replace("task_session(&init_task)", "task_session(&init_task) /* compat */")
             
+            if "extern struct task_struct init_task;" not in content:
+                content = "extern struct task_struct init_task;\n" + content
+                
             with open(dispatch_path, "w") as f:
                 f.write(content)
         EOF
