@@ -1,4 +1,4 @@
-name: Build Kernel 1 Samsung Wingtech A04 (Non-GKI 4.19)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19)
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
         fi
 
         echo "[-] Applying advanced Python AI patch for Kernel 4.19 sucompat & task_work compatibility..."
-        python3 -c "
+        python3 - << 'EOF'
         import glob, os
 
         # 1. Patch task_work_add / TWA_RESUME across all KSU files
@@ -62,21 +62,21 @@ jobs:
             with open(sucompat_path, 'r') as f:
                 code = f.read()
             
-            headers_to_add = '''
-#include <linux/types.h>
-#include <linux/sched.h>
-#include <linux/uaccess.h>
-#include <linux/slab.h>
-#include <linux/cred.h>
-#include <linux/version.h>
-'''
+            headers_to_add = """
+        #include <linux/types.h>
+        #include <linux/sched.h>
+        #include <linux/uaccess.h>
+        #include <linux/slab.h>
+        #include <linux/cred.h>
+        #include <linux/version.h>
+        """
             if '#include <linux/types.h>' not in code:
                 code = headers_to_add + code
             
             with open(sucompat_path, 'w') as f:
                 f.write(code)
             print('Successfully injected compatibility headers into sucompat.c')
-        "
+        EOF
 
         echo "[+] Wild_KSU fully integrated and auto-patched for Kernel 4.19 Non-GKI!"
 
