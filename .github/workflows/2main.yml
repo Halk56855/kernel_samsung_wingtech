@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher
+    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher (No KPM, No SuSFS)
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, seccomp, pgtable.h, & fsnotify handle_event fix)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (Disabling KPM, SuSFS, & fixing 4.19 compatibility)..."
         python3 -c '
         import os, re
         ns_count = 0
@@ -31,7 +31,7 @@ jobs:
         
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
-                if file.endswith((".c", ".h")):
+                if file.endswith((".c", ".h", "Kconfig", "Makefile")):
                     path = os.path.join(root, file)
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
@@ -98,7 +98,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
         
-        echo "[+] YukiSU integrated and fully patched for Kernel 4.19!"
+        echo "[+] YukiSU integrated and fully patched for Kernel 4.19 (No KPM, No SuSFS)!"
 
     - name: Install build dependencies
       run: |
@@ -153,7 +153,7 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
-        # Disable IKHEADERS to avoid broken pipes and inject YukiSU compilation flags
+        # Disable IKHEADERS and explicitly disable KPM and SuSFS
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
@@ -162,6 +162,8 @@ jobs:
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_SUSFS=n
+        CONFIG_KPM=n
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
