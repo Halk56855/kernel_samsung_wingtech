@@ -173,8 +173,16 @@ jobs:
         """)
         EOF
 
-        # 10. إنشاء مجلد ترويسات محلي وإضافة linux/pgtable.h المتوافق مع نواة 4.19 القديمة
+        # 10. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
+        cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
+        #ifndef _KSU_LINUX_MINMAX_H
+        #define _KSU_LINUX_MINMAX_H
+        #include <linux/kernel.h>
+        #include <linux/types.h>
+        #endif
+        EOF
+
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_LINUX_PGTABLE_H
         #define _KSU_LINUX_PGTABLE_H
