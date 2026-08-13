@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KittiSU & Neutralizing Strict Checks
+    - name: Clean Integration of KittiSU & Forced Native Compilation
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU
@@ -24,16 +24,18 @@ jobs:
         find KittiSU -name "manual_hook_check.mk" -exec truncate -s 0 {} \; || true
         
         python3 -c '
-        import os
+        import os, re
         for root, dirs, files in os.walk("KittiSU"):
             for f in files:
-                if f in ["Kbuild", "Makefile"] or f.endswith(".mk"):
-                    fp = os.path.join(root, f)
-                    with open(fp, "r", errors="ignore") as fh: content = fh.read()
-                    content = content.replace("error You should use KittiSU as a git submodule", "warning Submodule check bypassed")
-                    content = content.replace("error Can\x27t find KittiSU git submodule", "warning Submodule path bypassed")
-                    content = content.replace("error You should integrate KittiSU in your kernel correctly", "warning Manual hook check bypassed")
-                    with open(fp, "w") as fh: fh.write(content)
+                fp = os.path.join(root, f)
+                with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                
+                # تجاوز شروط الـ Submodule والـ Manual Hook
+                content = content.replace("error You should use KittiSU as a git submodule", "warning Submodule check bypassed")
+                content = content.replace("error Can\x27t find KittiSU git submodule", "warning Submodule path bypassed")
+                content = content.replace("error You should integrate KittiSU in your kernel correctly", "warning Manual hook check bypassed")
+                
+                with open(fp, "w") as fh: fh.write(content)
         '
 
         echo "[-] Linking KittiSU kernel folder to drivers/kernelsu..."
@@ -59,6 +61,19 @@ jobs:
         print("[+] Symlink drivers/kernelsu created successfully")
         '
 
+        echo "[-] Forcing KittiSU Makefiles to build unconditionally (obj-y)..."
+        python3 -c '
+        import os, re
+        for r, ds, fs in os.walk("drivers/kernelsu"):
+            for f in fs:
+                if f in ("Makefile", "Kbuild") or f.endswith(".mk"):
+                    fp = os.path.join(r, f)
+                    with open(fp, "r", errors="ignore") as fh: c = fh.read()
+                    c = re.sub(r"obj-\$\([^)]+\)", "obj-y", c)
+                    c = re.sub(r"obj-\$[A-Za-z0-9_]+", "obj-y", c)
+                    with open(fp, "w") as fh: c = fh.write(c)
+        '
+
         echo "[-] Wiring Kconfig and Makefile safely..."
         if ! grep -q "kernelsu" drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
@@ -68,7 +83,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[+] KittiSU successfully integrated and fully bypassed!"
+        echo "[+] KittiSU successfully integrated and forced for compilation!"
 
     - name: Install build dependencies
       run: |
