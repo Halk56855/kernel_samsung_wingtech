@@ -14,7 +14,7 @@ jobs:
     - name: Clean Integration of KittiSU & Universal Compatibility Layer
       run: |
         echo "[-] Cleaning up old remnants..."
-        rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU
+        rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU drivers/kernelsu/manual_hook_compat.c
 
         echo "[-] Adding KittiSU repository as a proper git submodule..."
         git submodule add -b testing https://github.com/terebiko/KittiSU.git KittiSU
@@ -69,8 +69,8 @@ jobs:
         print("[+] Symlink drivers/kernelsu created successfully")
         '
 
-        echo "[-] Injecting manual hook compatibility layer for 4.19 cleanly..."
-        cat << 'EOF' > drivers/kernelsu/manual_hook_compat.c
+        echo "[-] Injecting manual hook compatibility layer directly into fs/ for LLD perfection..."
+        cat << 'EOF' > fs/ksu_compat.c
         #include <linux/module.h>
         #include <linux/types.h>
         #include <linux/fs.h>
@@ -93,6 +93,10 @@ jobs:
             return 0;
         }
         EOF
+
+        if ! grep -q "ksu_compat.o" fs/Makefile; then
+          echo 'obj-y += ksu_compat.o' >> fs/Makefile
+        fi
 
         echo "[-] Injecting foolproof custom Makefile to force compilation of all KittiSU files..."
         cat << 'EOF' > drivers/kernelsu/Makefile
