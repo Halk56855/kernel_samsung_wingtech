@@ -20,13 +20,14 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, seccomp, & pgtable.h fix)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, seccomp, pgtable.h, & fsnotify handle_event fix)..."
         python3 -c '
         import os, re
         ns_count = 0
         twa_count = 0
         seccomp_count = 0
         pgtable_count = 0
+        fsnotify_count = 0
         
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
@@ -63,6 +64,12 @@ jobs:
                     if new_content != content3:
                         pgtable_count += 1
 
+                    # 5. Map handle_inode_event to handle_event for fsnotify_ops in Kernel 4.19
+                    content4 = new_content
+                    new_content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", content4)
+                    if new_content != content4:
+                        fsnotify_count += 1
+
                     if new_content != content:
                         with open(path, "w", encoding="utf-8") as f:
                             f.write(new_content)
@@ -72,6 +79,7 @@ jobs:
         print(f"Total task_work_add fixed for 4.19: {twa_count}")
         print(f"Total seccomp.filter_count omitted for 4.19: {seccomp_count}")
         print(f"Total pgtable.h includes mapped to asm/pgtable.h: {pgtable_count}")
+        print(f"Total handle_inode_event mapped to handle_event: {fsnotify_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
