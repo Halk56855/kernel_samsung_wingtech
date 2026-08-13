@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Precise Kernel 4.19 Compatibility Patcher
+    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -20,11 +20,13 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying precise Python patch for Kernel 4.19 (MODULE_IMPORT_NS & task_work_add 3-arg fix)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, & seccomp.filter_count fix)..."
         python3 -c '
         import os, re
         ns_count = 0
         twa_count = 0
+        seccomp_count = 0
+        
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -34,22 +36,32 @@ jobs:
                     
                     # 1. Neutralize MODULE_IMPORT_NS
                     new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
-                    if new_content != content:
-                        ns_count += 1
 
-                    # 2. Fix task_work_add by replacing TWA_ flags with true to satisfy 4.19 3-argument requirement
+                    # 2. Fix task_work_add by replacing TWA flags with true
                     content2 = new_content
                     new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", content2)
-                    if new_content != content2:
-                        twa_count += 1
 
-                    if new_content != content:
+                    # 3. Neutralize seccomp.filter_count lines safely
+                    lines = new_content.splitlines()
+                    new_lines = []
+                    file_modified = False
+                    for line in lines:
+                        if "seccomp.filter_count" in line:
+                            new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
+                            seccomp_count += 1
+                            file_modified = True
+                        else:
+                            new_lines.append(line)
+                    
+                    if file_modified or new_content != content:
+                        final_content = "\n".join(new_lines) + "\n"
                         with open(path, "w", encoding="utf-8") as f:
-                            f.write(new_content)
+                            f.write(final_content)
                         print(f"Successfully patched: {path}")
 
         print(f"Total MODULE_IMPORT_NS neutralized: {ns_count}")
         print(f"Total task_work_add fixed for 4.19: {twa_count}")
+        print(f"Total seccomp.filter_count omitted for 4.19: {seccomp_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
