@@ -52,7 +52,18 @@ jobs:
             except Exception as e:
                 pass
 
-        # 2. Robust structural and definition patch for sucompat.c
+        # 2. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
+        pkg_observer_path = 'drivers/kernelsu/pkg_observer.c'
+        if os.path.exists(pkg_observer_path):
+            with open(pkg_observer_path, 'r') as f:
+                content = f.read()
+            if 'handle_inode_event' in content:
+                content = content.replace('handle_inode_event', 'handle_event')
+                with open(pkg_observer_path, 'w') as f:
+                    f.write(content)
+                print('Successfully patched pkg_observer.c for Kernel 4.19 fsnotify_ops.')
+
+        # 3. Robust structural and definition patch for sucompat.c
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
