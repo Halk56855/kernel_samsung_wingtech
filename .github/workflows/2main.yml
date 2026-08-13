@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Automated Kernel 4.19 Patching
+    - name: Integrate YukiSU & Bulletproof Kernel 4.19 Patcher
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -19,6 +19,34 @@ jobs:
 
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
+
+        echo "[-] Applying bulletproof Python patch to neutralize MODULE_IMPORT_NS for Kernel 4.19..."
+        python3 -c '
+        import os
+        count = 0
+        for root, dirs, files in os.walk("YukiSU"):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    path = os.path.join(root, file)
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
+                    
+                    new_lines = []
+                    file_modified = False
+                    for line in lines:
+                        if "MODULE_IMPORT_NS" in line:
+                            new_lines.append("// [Kernel-4.19-Compat] " + line)
+                            file_modified = True
+                            count += 1
+                        else:
+                            new_lines.append(line)
+                    
+                    if file_modified:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.writelines(new_lines)
+                        print(f"Patched successfully: {path}")
+        print(f"Total MODULE_IMPORT_NS occurrences neutralized: {count}")
+        '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
         if [ -d "YukiSU/kernel" ]; then
@@ -35,11 +63,8 @@ jobs:
         if ! grep -q "kernelsu" drivers/Makefile; then
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
-
-        echo "[-] Applying automatic AI patch for Kernel 4.19 compatibility (Removing MODULE_IMPORT_NS)..."
-        find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
         
-        echo "[+] YukiSU integrated and patched successfully for Kernel 4.19!"
+        echo "[+] YukiSU integrated and fully patched for Kernel 4.19!"
 
     - name: Install build dependencies
       run: |
