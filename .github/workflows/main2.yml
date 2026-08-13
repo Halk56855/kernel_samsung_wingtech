@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Multi-line Robust Python SELinux Patcher
+    - name: Clean repository and setup ReSukiSU with Precise Python SELinux Line Patcher
       run: |
         git reset --hard || true
         
@@ -34,7 +34,7 @@ jobs:
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. الحل البرمجي الذكي عبر Python لتصحيح وتعديل استدعاءات دوال SELinux (بما فيها المتعددة الأسطر) لنواة 4.19
+        # 3. الحل البرمجي الذكي عبر Python لتصحيح وتعديل استدعاءات دوال SELinux لنواة 4.19
         python3 - << 'EOF'
         import re
 
@@ -61,69 +61,23 @@ jobs:
         except Exception as e:
             print("Skipped selinux.c:", e)
 
-        # Fix selinux_hide.c مع دعم كامل للاستدعاءات الممتدة على أكثر من سطر (Multi-line)
+        # Fix selinux_hide.c: معالجة السطور الدقيقة لدوال avc_has_perm فقط دون المساس بالبنية الداخلية للوظائف
         try:
             path = "drivers/kernelsu/feature/selinux_hide.c"
             with open(path, "r") as f:
-                content = f.read()
+                lines = f.readlines()
+            
+            new_lines = []
+            for line in lines:
+                # فقط تعديل سطر استدعاء avc_has_perm الذي ينقصه معامل الحالات (&selinux_state)
+                if "avc_has_perm" in line and not "static" in line and not "#define" in line and not "int avc_has_perm" in line and not "&selinux_state" in line:
+                    # استبدال أول قوس فتح بعد avc_has_perm بـ (&selinux_state, 
+                    line = re.sub(r'\bavc_has_perm\s*\(\s*', 'avc_has_perm(&selinux_state, ', line)
 
-            # إزالة التصريحات الثابتة المعارضة إن وجدت
-            content = re.sub(r'static\s+(int|void)\s+security_[^;]+;', '', content)
-            content = re.sub(r'static\s+(int|void)\s+ksu_[^;]+;', '', content)
-
-            # 1. إصلاح avc_has_perm (مع دعم الأسطر المتعددة)
-            def fix_avc(m):
-                body = m.group(1).strip()
-                if body.startswith('&selinux_state'):
-                    return m.group(0)
-                return f"avc_has_perm(&selinux_state, {body})"
-
-            content = re.sub(r'\bavc_has_perm\s*\((.*?)\)', fix_avc, content, flags=re.DOTALL)
-
-            # 2. إصلاح security_context_to_sid (مع دعم الأسطر المتعددة وحساب الطول تلقائياً)
-            def fix_sctx(m):
-                body = m.group(1).strip()
-                if body.startswith('&selinux_state'):
-                    args = [arg.strip() for arg in body.split(',')]
-                    if len(args) == 4:
-                        scon = args[1]
-                        sid = args[2]
-                        gfp = args[3]
-                        return f"security_context_to_sid(&selinux_state, {scon}, strlen({scon}), {sid}, {gfp})"
-                    return m.group(0)
-                else:
-                    args = [arg.strip() for arg in body.split(',')]
-                    if len(args) == 3:
-                        scon, sid, gfp = args
-                        return f"security_context_to_sid(&selinux_state, {scon}, strlen({scon}), {sid}, {gfp})"
-                    elif len(args) == 4:
-                        scon, length_arg, sid, gfp = args
-                        return f"security_context_to_sid(&selinux_state, {scon}, {length_arg}, {sid}, {gfp})"
-                return m.group(0)
-
-            content = re.sub(r'\bsecurity_context_to_sid\s*\((.*?)\)', fix_sctx, content, flags=re.DOTALL)
-
-            # 3. إصلاح security_compute_av_user (مع دعم الأسطر المتعددة)
-            def fix_av_user(m):
-                body = m.group(1).strip()
-                if body.startswith('&selinux_state'):
-                    return m.group(0)
-                args = [arg.strip() for arg in body.split(',')]
-                if len(args) == 4:
-                    ssid, tsid, tclass, avd = args
-                    return f"security_compute_av_user(&selinux_state, {ssid}, {tsid}, {tclass}, {avd})"
-                return m.group(0)
-
-            content = re.sub(r'\bsecurity_compute_av_user\s*\((.*?)\)', fix_av_user, content, flags=re.DOTALL)
-
-            # إزالة أي بادئات ksu_ قديمة إن وجدت
-            content = content.replace("ksu_security_context_to_sid", "security_context_to_sid")
-            content = content.replace("ksu_security_sid_to_context", "security_sid_to_context")
-            content = content.replace("ksu_security_context_str_to_sid", "security_context_to_sid")
-            content = content.replace("ksu_security_compute_av_user", "security_compute_av_user")
+                new_lines.append(line)
 
             with open(path, "w") as f:
-                f.write(content)
+                f.writelines(new_lines)
         except Exception as e:
             print("Skipped selinux_hide.c:", e)
 
