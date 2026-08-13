@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Disabling SuSFS & KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -52,7 +52,24 @@ jobs:
             except Exception as e:
                 pass
 
-        # 2. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
+        # 2. Explicitly disable SuSFS and KPM defaults in Kconfig files
+        for filepath in glob.glob('drivers/kernelsu/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+                modified = False
+                for keyword in ['SUSFS', 'KPM', 'su_sfs']:
+                    if keyword in content:
+                        # Force default to n or remove dependencies
+                        content = content.replace('default y', 'default n')
+                        modified = True
+                if modified:
+                    with open(filepath, 'w') as f:
+                        f.write(content)
+            except Exception as e:
+                pass
+
+        # 3. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
         pkg_observer_path = 'drivers/kernelsu/pkg_observer.c'
         if os.path.exists(pkg_observer_path):
             with open(pkg_observer_path, 'r') as f:
@@ -63,18 +80,17 @@ jobs:
                     f.write(content)
                 print('Successfully patched pkg_observer.c for Kernel 4.19 fsnotify_ops.')
 
-        # 3. Fix KSU Makefile object targets to prevent missing target errors on Kernel 4.19
+        # 4. Fix KSU Makefile object targets to prevent missing target errors on Kernel 4.19
         ksu_makefile = 'drivers/kernelsu/Makefile'
         if os.path.exists(ksu_makefile):
             with open(ksu_makefile, 'r') as f:
                 mf_content = f.read()
-            # Remove references to non-existent or conflicting object files in 4.19
             mf_content = mf_content.replace('setuid_hook.o', '')
             with open(ksu_makefile, 'w') as f:
                 f.write(mf_content)
             print('Successfully cleaned up drivers/kernelsu/Makefile targets.')
 
-        # 4. Robust structural and definition patch for sucompat.c
+        # 5. Robust structural and definition patch for sucompat.c
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
@@ -127,7 +143,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, SuSFS & KPM disabled, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
@@ -182,7 +198,7 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
-        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب (Broken pipe) وتفعيل متطلبات Wild_KSU بالكامل
+        # تعطيل IKHEADERS لمنع خطأ كسر الأنابيب وتعطيل SuSFS و KPM تماماً في إعدادات النواة
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
@@ -192,6 +208,8 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
+        CONFIG_KSU_SUSFS=n
+        CONFIG_KSU_KPM=n
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
