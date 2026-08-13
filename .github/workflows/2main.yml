@@ -20,12 +20,13 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, & seccomp.filter_count fix)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS, task_work_add, seccomp, & pgtable.h fix)..."
         python3 -c '
         import os, re
         ns_count = 0
         twa_count = 0
         seccomp_count = 0
+        pgtable_count = 0
         
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
@@ -44,24 +45,33 @@ jobs:
                     # 3. Neutralize seccomp.filter_count lines safely
                     lines = new_content.splitlines()
                     new_lines = []
-                    file_modified = False
+                    seccomp_modified = False
                     for line in lines:
                         if "seccomp.filter_count" in line:
                             new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
                             seccomp_count += 1
-                            file_modified = True
+                            seccomp_modified = True
                         else:
                             new_lines.append(line)
                     
-                    if file_modified or new_content != content:
-                        final_content = "\n".join(new_lines) + "\n"
+                    if seccomp_modified:
+                        new_content = "\n".join(new_lines) + "\n"
+
+                    # 4. Map linux/pgtable.h to asm/pgtable.h for 4.19 compatibility
+                    content3 = new_content
+                    new_content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", content3)
+                    if new_content != content3:
+                        pgtable_count += 1
+
+                    if new_content != content:
                         with open(path, "w", encoding="utf-8") as f:
-                            f.write(final_content)
+                            f.write(new_content)
                         print(f"Successfully patched: {path}")
 
         print(f"Total MODULE_IMPORT_NS neutralized: {ns_count}")
         print(f"Total task_work_add fixed for 4.19: {twa_count}")
         print(f"Total seccomp.filter_count omitted for 4.19: {seccomp_count}")
+        print(f"Total pgtable.h includes mapped to asm/pgtable.h: {pgtable_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
