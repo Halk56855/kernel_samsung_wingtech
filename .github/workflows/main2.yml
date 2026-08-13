@@ -16,20 +16,33 @@ jobs:
         git clean -fdx
         git reset --hard
 
-    - name: Setup ReSukiSU cleanly without modifying system drivers
+    - name: Setup ReSukiSU cleanly and guarantee Kconfig existence
       run: |
-        # تنظيف مجلد drivers/kernelsu واستنساخ ReSukiSU بالطريقة القياسية النظيفة
+        # 1. تنظيف مجلد drivers/kernelsu واستنساخ ReSukiSU بالطريقة القياسية النظيفة
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # استخدام السكريبت الرسمي المدمج داخل ReSukiSU إن وجد لتثبيت الخطافات القياسية
-        if [ -f "drivers/kernelsu/kernel/setup.sh" ]; then
-          bash drivers/kernelsu/kernel/setup.sh || true
-        elif [ -f "drivers/kernelsu/setup.sh" ]; then
-          bash drivers/kernelsu/setup.sh || true
+        # 2. تسوية الهيكل البرمجي إذا كانت الملفات داخل مجلد kernel فرعي دون المساس بملفات النواة الأصلية
+        if [ -d "drivers/kernelsu/kernel" ]; then
+          cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # ربط ReSukiSU بنظام البناء العام للنواة بشكل نظيف فقط
+        # 3. إنشاء ملف Kconfig بشكل قاطع بعد النسخ لضمان عدم فقده مطلقاً وتفادي خطأ Kconfig
+        cat << 'EOT' > drivers/kernelsu/Kconfig
+        config KSU
+            bool "KernelSU support"
+            default y
+
+        config KSU_MANUAL_HOOK
+            bool "KernelSU Manual Hook Support"
+            default y
+
+        config KSU_SUCOMPAT
+            bool "KernelSU Sucompat Support"
+            default y
+        EOT
+
+        # 4. ربط ReSukiSU بنظام البناء العام للنواة بشكل نظيف وآمن تماماً
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
