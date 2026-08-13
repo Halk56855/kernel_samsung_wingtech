@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19)
+name: Build Kernel Samsung Wingtech A04 Non-GKI 4.19 (Wild_KSU)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate Wild_KSU KernelSU & Advanced Kernel 4.19 AI Auto-Patch
+    - name: Integrate Wild_KSU KernelSU & Ultimate Kernel 4.19 AI Auto-Patch
       run: |
         echo "[-] Cleaning up old KernelSU remnants..."
         rm -rf drivers/kernelsu
@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying advanced Python AI patch for Kernel 4.19 sucompat & task_work compatibility..."
+        echo "[-] Applying ultimate Python AI patch for Kernel 4.19 sucompat, KSUD_PATH & types compatibility..."
         python3 - << 'EOF'
         import glob, os
 
@@ -52,33 +52,52 @@ jobs:
                 if modified:
                     with open(filepath, 'w') as f:
                         f.write(content)
-                    print(f'Patched TWA_RESUME in: {filepath}')
             except Exception as e:
                 pass
 
-        # 2. Specifically fix sucompat.c missing headers and types for Kernel 4.19
+        # 2. Specifically fix sucompat.c missing declarations, KSUD_PATH, and feature handlers for Kernel 4.19
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
                 code = f.read()
             
+            # Inject required definitions if missing
+            patch_definitions = """
+#ifndef KSUD_PATH
+#define KSUD_PATH "/sbin/ksud"
+#endif
+
+#ifndef KSU_FEATURE_SU_COMPAT
+#define KSU_FEATURE_SU_COMPAT 0
+#endif
+
+#ifndef struct_path_defined
+#define struct_path_defined
+struct path;
+#endif
+"""
+            if 'KSUD_PATH' not in code:
+                code = patch_definitions + code
+
             headers_to_add = """
-        #include <linux/types.h>
-        #include <linux/sched.h>
-        #include <linux/uaccess.h>
-        #include <linux/slab.h>
-        #include <linux/cred.h>
-        #include <linux/version.h>
-        """
-            if '#include <linux/types.h>' not in code:
+#include <linux/types.h>
+#include <linux/sched.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
+#include <linux/cred.h>
+#include <linux/version.h>
+#include <linux/path.h>
+#include <linux/fs.h>
+"""
+            if '#include <linux/path.h>' not in code:
                 code = headers_to_add + code
             
             with open(sucompat_path, 'w') as f:
                 f.write(code)
-            print('Successfully injected compatibility headers into sucompat.c')
+            print('Successfully patched sucompat.c with Kernel 4.19 structural definitions.')
         EOF
 
-        echo "[+] Wild_KSU fully integrated and auto-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
