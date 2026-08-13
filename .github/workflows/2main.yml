@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (Disabling KPM, SuSFS, mount.h & all 4.19 compatibility fixes)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (Disabling KPM, SuSFS, access_ok & all 4.19 compatibility fixes)..."
         python3 -c '
         import os, re
         ns_count = 0
@@ -30,6 +30,7 @@ jobs:
         fsnotify_count = 0
         forcesig_count = 0
         mount_count = 0
+        access_count = 0
         
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
@@ -84,6 +85,12 @@ jobs:
                     if new_content != content6:
                         mount_count += 1
 
+                    # 8. Fix access_ok 2-argument calls to 3-argument access_ok(VERIFY_READ, addr, size) for Kernel 4.19
+                    content7 = new_content
+                    new_content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", content7)
+                    if new_content != content7:
+                        access_count += 1
+
                     if new_content != content:
                         with open(path, "w", encoding="utf-8") as f:
                             f.write(new_content)
@@ -96,6 +103,7 @@ jobs:
         print(f"Total handle_inode_event mapped to handle_event: {fsnotify_count}")
         print(f"Total force_sig fixed for 4.19: {forcesig_count}")
         print(f"Total uapi/linux/mount.h mapped to linux/mount.h: {mount_count}")
+        print(f"Total access_ok fixed for 4.19 (VERIFY_READ added): {access_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
