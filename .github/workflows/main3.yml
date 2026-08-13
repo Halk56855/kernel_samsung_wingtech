@@ -187,7 +187,21 @@ jobs:
         """)
         EOF
 
-        # 11. معالجة أخطاء dispatch.c وإضافة التصريح الخارجي لـ init_task وتجاوز tasklist_lock
+        # 11. معالجة أخطاء selinux_hide.c لنواة 4.19 القديمة لتجنب عدم توافق هياكل SELinux
+        python3 - << 'EOF'
+        import os
+        hide_path = "drivers/kernelsu/feature/selinux_hide.c"
+        if os.path.exists(hide_path):
+            with open(hide_path, "w") as f:
+                f.write("""#include <linux/version.h>
+        #include <linux/types.h>
+        #include <linux/kernel.h>
+        int ksu_selinux_hide_init(void) { return 0; }
+        void ksu_selinux_hide_exit(void) {}
+        """)
+        EOF
+
+        # 12. معالجة أخطاء dispatch.c وإضافة التصريح الخارجي لـ init_task وتجاوز tasklist_lock
         python3 - << 'EOF'
         import os
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
@@ -205,7 +219,7 @@ jobs:
                 f.write(content)
         EOF
 
-        # 12. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
+        # 13. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
         #ifndef _KSU_LINUX_MINMAX_H
@@ -223,17 +237,17 @@ jobs:
         #endif
         EOF
 
-        # 13. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 14. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 14. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 15. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 15. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
+        # 16. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
         if [ -f "drivers/kernelsu/Makefile" ]; then
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
           echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
