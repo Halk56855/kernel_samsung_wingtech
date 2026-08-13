@@ -76,7 +76,6 @@ jobs:
         };
         #endif
         """
-            # Insert after the last include statement to ensure all types/headers are resolved first
             last_include_idx = code.rfind('#include')
             if last_include_idx != -1:
                 end_of_line = code.find('\n', last_include_idx)
@@ -121,13 +120,13 @@ jobs:
     - name: Download GCC Toolchain
       run: |
         cd toolchain/gcc
-        wget -q https://github.1s.best/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
     - name: Download Compatible Clang Toolchain
       run: |
         cd toolchain/clang
-        wget -q https://github.1s.best/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
@@ -178,7 +177,7 @@ jobs:
 
     - name: Package into AnyKernel3 Flashable Zip
       run: |
-        git clone https://github.1s.best/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3 || true
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3 || true
         cp out/arch/arm64/boot/Image AnyKernel3/
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
