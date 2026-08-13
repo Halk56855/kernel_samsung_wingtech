@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository and setup ReSukiSU with Complete SuSucompat & SELinux Integration
+    - name: Clean repository and setup ReSukiSU with Complete SELinux State Integration
       run: |
         git reset --hard || true
         
@@ -34,7 +34,7 @@ jobs:
         # تجاوز فحوصات الأدوات الخارجية إن وجدت
         find drivers/kernelsu/tools -name "*.mk" -exec sh -c 'echo "# Bypassed check" > "{}"' \; 2>/dev/null || true
 
-        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb وتصحيح بادئة ksu_security لصالح نواة 4.19
+        # 3. حل جذري نهائي لأخطاء SELinux وتواقيع الدوال ومعاملات policydb وتصحيح تمرير &selinux_state لنواة 4.19
         SEL_DEFS_FILE="drivers/kernelsu/selinux/selinux_defs.h"
         if [ -f "$SEL_DEFS_FILE" ]; then
           sed -i 's/selinux_enforcing/selinux_state.enforcing/g' "$SEL_DEFS_FILE"
@@ -56,6 +56,11 @@ jobs:
           sed -i 's/ksu_security_sid_to_context/security_sid_to_context/g' "$SEL_HIDE_FILE"
           sed -i 's/ksu_security_context_str_to_sid/security_context_to_sid/g' "$SEL_HIDE_FILE"
           sed -i 's/ksu_security_compute_av_user/security_compute_av_user/g' "$SEL_HIDE_FILE"
+          
+          # حقن &selinux_state تلقائياً كمعامل أول لدوال الأمان في نواة 4.19
+          sed -i 's/security_context_to_sid(\([^&]\)/security_context_to_sid(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
+          sed -i 's/security_sid_to_context(\([^&]\)/security_sid_to_context(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
+          sed -i 's/security_compute_av_user(\([^&]\)/security_compute_av_user(\&selinux_state, \1/g' "$SEL_HIDE_FILE" || true
         fi
 
         RULES_FILE="drivers/kernelsu/selinux/rules.c"
