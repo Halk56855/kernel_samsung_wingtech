@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (Disabling KPM, SuSFS, & fixing 4.19 compatibility)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (Disabling KPM, SuSFS, force_sig & all 4.19 compatibility fixes)..."
         python3 -c '
         import os, re
         ns_count = 0
@@ -28,6 +28,7 @@ jobs:
         seccomp_count = 0
         pgtable_count = 0
         fsnotify_count = 0
+        forcesig_count = 0
         
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
@@ -70,6 +71,12 @@ jobs:
                     if new_content != content4:
                         fsnotify_count += 1
 
+                    # 6. Fix force_sig single argument to (SIG, current) for 4.19
+                    content5 = new_content
+                    new_content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", content5)
+                    if new_content != content5:
+                        forcesig_count += 1
+
                     if new_content != content:
                         with open(path, "w", encoding="utf-8") as f:
                             f.write(new_content)
@@ -80,6 +87,7 @@ jobs:
         print(f"Total seccomp.filter_count omitted for 4.19: {seccomp_count}")
         print(f"Total pgtable.h includes mapped to asm/pgtable.h: {pgtable_count}")
         print(f"Total handle_inode_event mapped to handle_event: {fsnotify_count}")
+        print(f"Total force_sig fixed for 4.19: {forcesig_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
