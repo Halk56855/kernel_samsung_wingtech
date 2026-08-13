@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Fixing SECCOMP_ARCH_NATIVE_NR & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Fixing file_wrapper.c & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -50,12 +50,29 @@ jobs:
             with open(setuid_hook_path, 'w') as f:
                 f.write("/* AI Auto-generated stub for Kernel 4.19 compatibility */\nstatic int __attribute__((unused)) ksu_dummy_setuid_hook;\n")
 
-        # 2. Fix SECCOMP_ARCH_NATIVE_NR missing identifier in seccomp_cache.c for Kernel 4.19
+        # 2. Fix file_wrapper.c compatibility for Kernel 4.19 (handling missing iopoll & remap_file_range fields)
+        file_wrapper_path = os.path.join(kernelsu_dir, 'file_wrapper.c')
+        if os.path.exists(file_wrapper_path):
+            with open(file_wrapper_path, 'r') as f:
+                code = f.read()
+            
+            # Safely neutralize or remove references to iopoll and remap_file_range if struct file_operations lacks them in 4.19
+            code = code.replace("p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;", "/* p->ops.iopoll removed for Kernel 4.19 */")
+            code = code.replace("return orig->f_op->iopoll(kiocb, spin);", "return -EOPNOTSUPP;")
+            code = code.replace("p->ops.remap_file_range =", "/* remap_file_range removed */\n//p->ops.remap_file_range =")
+            code = code.replace("fp->f_op->remap_file_range ?", "0 ?")
+            code = code.replace("return orig->f_op->remap_file_range(", "return -EOPNOTSUPP; //")
+
+            with open(file_wrapper_path, 'w') as f:
+                f.write(code)
+            print("Successfully patched file_wrapper.c for Kernel 4.19 file_operations compatibility.")
+
+        # 3. Fix SECCOMP_ARCH_NATIVE_NR missing identifier in seccomp_cache.c for Kernel 4.19
         seccomp_path = os.path.join(kernelsu_dir, 'seccomp_cache.c')
         if os.path.exists(seccomp_path):
             with open(seccomp_path, 'r') as f:
                 code = f.read()
-            if 'SECCOMP_ARCH_NATIVE_NR' in code:
+            if 'SECCOMP_ARCH_NATIVE_NR' in code and '#define SECCOMP_ARCH_NATIVE_NR' not in code:
                 macro_fix = """
         #ifndef SECCOMP_ARCH_NATIVE_NR
         #define SECCOMP_ARCH_NATIVE_NR 512
@@ -64,9 +81,8 @@ jobs:
                 code = macro_fix + code
                 with open(seccomp_path, 'w') as f:
                     f.write(code)
-                print("Successfully added SECCOMP_ARCH_NATIVE_NR fallback to seccomp_cache.c")
 
-        # 3. Fix uapi/linux/mount.h include issue for Kernel 4.19
+        # 4. Fix uapi/linux/mount.h include issue for Kernel 4.19
         for filepath in glob.glob(f'{kernelsu_dir}/**/*.c', recursive=True) + glob.glob(f'{kernelsu_dir}/**/*.h', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -84,7 +100,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 4. Patch task_work_add / TWA_RESUME across all KSU files
+        # 5. Patch task_work_add / TWA_RESUME across all KSU files
         for filepath in glob.glob(f'{kernelsu_dir}/**/*.c', recursive=True) + glob.glob('KernelSU/**/*.c', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -96,7 +112,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 5. Explicitly disable SuSFS and KPM defaults in Kconfig files
+        # 6. Explicitly disable SuSFS and KPM defaults in Kconfig files
         for filepath in glob.glob(f'{kernelsu_dir}/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -112,7 +128,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 6. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
+        # 7. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
         pkg_observer_path = os.path.join(kernelsu_dir, 'pkg_observer.c')
         if os.path.exists(pkg_observer_path):
             with open(pkg_observer_path, 'r') as f:
@@ -122,7 +138,7 @@ jobs:
                 with open(pkg_observer_path, 'w') as f:
                     f.write(content)
 
-        # 7. Robust structural and definition patch for sucompat.c
+        # 8. Robust structural and definition patch for sucompat.c
         sucompat_path = os.path.join(kernelsu_dir, 'sucompat.c')
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
@@ -174,7 +190,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, seccomp compatibility fixed, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, file_wrapper compatibility fixed, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
