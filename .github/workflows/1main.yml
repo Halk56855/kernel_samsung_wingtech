@@ -36,66 +36,56 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Applying ultimate Python AI patch for Kernel 4.19 sucompat, KSUD_PATH & types compatibility..."
-        python3 - << 'EOF'
+        echo "[-] Creating and applying AI Auto-Patch script for Kernel 4.19..."
+        cat << 'EOF' > patch_ksu.py
         import glob, os
-
-        # 1. Patch task_work_add / TWA_RESUME across all KSU files
         for filepath in glob.glob('drivers/kernelsu/**/*.c', recursive=True) + glob.glob('KernelSU/**/*.c', recursive=True):
             try:
                 with open(filepath, 'r') as f:
                     content = f.read()
-                modified = False
                 if 'TWA_RESUME' in content:
                     content = content.replace('TWA_RESUME', '0')
-                    modified = True
-                if modified:
                     with open(filepath, 'w') as f:
                         f.write(content)
             except Exception as e:
                 pass
-
-        # 2. Specifically fix sucompat.c missing declarations, KSUD_PATH, and feature handlers for Kernel 4.19
         sucompat_path = 'drivers/kernelsu/sucompat.c'
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
                 code = f.read()
-            
-            # Inject required definitions if missing
             patch_definitions = """
-#ifndef KSUD_PATH
-#define KSUD_PATH "/sbin/ksud"
-#endif
-
-#ifndef KSU_FEATURE_SU_COMPAT
-#define KSU_FEATURE_SU_COMPAT 0
-#endif
-
-#ifndef struct_path_defined
-#define struct_path_defined
-struct path;
-#endif
-"""
+        #ifndef KSUD_PATH
+        #define KSUD_PATH "/sbin/ksud"
+        #endif
+        #ifndef KSU_FEATURE_SU_COMPAT
+        #define KSU_FEATURE_SU_COMPAT 0
+        #endif
+        #ifndef struct_path_defined
+        #define struct_path_defined
+        struct path;
+        #endif
+        """
             if 'KSUD_PATH' not in code:
                 code = patch_definitions + code
-
             headers_to_add = """
-#include <linux/types.h>
-#include <linux/sched.h>
-#include <linux/uaccess.h>
-#include <linux/slab.h>
-#include <linux/cred.h>
-#include <linux/version.h>
-#include <linux/path.h>
-#include <linux/fs.h>
-"""
+        #include <linux/types.h>
+        #include <linux/sched.h>
+        #include <linux/uaccess.h>
+        #include <linux/slab.h>
+        #include <linux/cred.h>
+        #include <linux/version.h>
+        #include <linux/path.h>
+        #include <linux/fs.h>
+        """
             if '#include <linux/path.h>' not in code:
                 code = headers_to_add + code
-            
             with open(sucompat_path, 'w') as f:
                 f.write(code)
             print('Successfully patched sucompat.c with Kernel 4.19 structural definitions.')
         EOF
+
+        python3 patch_ksu.py
+        rm patch_ksu.py
 
         echo "[+] Wild_KSU fully integrated and ultimate-patched for Kernel 4.19 Non-GKI!"
 
