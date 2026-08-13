@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher
+    - name: Integrate YukiSU & Precise Kernel 4.19 Compatibility Patcher
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (MODULE_IMPORT_NS & TWA_RESUME compatibility)..."
+        echo "[-] Applying precise Python patch for Kernel 4.19 (MODULE_IMPORT_NS & task_work_add 3-arg fix)..."
         python3 -c '
         import os, re
         ns_count = 0
@@ -37,9 +37,9 @@ jobs:
                     if new_content != content:
                         ns_count += 1
 
-                    # 2. Fix task_work_add 3-argument version with TWA flags for older kernels (4.19)
+                    # 2. Fix task_work_add by replacing TWA_ flags with true to satisfy 4.19 3-argument requirement
                     content2 = new_content
-                    new_content = re.sub(r"task_work_add\s*\(([^)]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1)", content2)
+                    new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", content2)
                     if new_content != content2:
                         twa_count += 1
 
@@ -49,7 +49,7 @@ jobs:
                         print(f"Successfully patched: {path}")
 
         print(f"Total MODULE_IMPORT_NS neutralized: {ns_count}")
-        print(f"Total task_work_add TWA flags adjusted for 4.19: {twa_count}")
+        print(f"Total task_work_add fixed for 4.19: {twa_count}")
         '
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
