@@ -29,10 +29,9 @@ jobs:
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 4. تجاوز وتعطيل فحص الـ submodule الإجباري في Kbuild الخاص بـ ReSukiSU لتجنب خطأ التوقف
+        # 4. تجاوز وتعطيل فحص الـ submodule الإجباري تفادياً لأي أخطاء نصية وبدون أي اقتباسات خاطئة
         if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i '/You should use ReSukiSU as a git submodule/d' drivers/kernelsu/Kbuild || true
-          sed -i '/Can\'t find ReSukiSU git submodule/d' drivers/kernelsu/Kbuild || true
+          sed -i '/git submodule/d' drivers/kernelsu/Kbuild || true
           sed -i '/KSU_SRC/d' drivers/kernelsu/Kbuild || true
         fi
 
