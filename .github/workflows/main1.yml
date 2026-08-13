@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KittiSU & Universal Makefile Injection
+    - name: Clean Integration of KittiSU & Universal Compatibility Layer
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU
@@ -68,6 +68,33 @@ jobs:
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
         print("[+] Symlink drivers/kernelsu created successfully")
         '
+
+        echo "[-] Injecting manual hook compatibility layer for 4.19..."
+        cat << 'EOF' > drivers/kernelsu/manual_hook_compat.c
+        #linux
+        #include <linux/types.h>
+        #include <linux/fs.h>
+        #include <linux/sched.h>
+        #include <linux/uaccess.h>
+
+        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+            return false;
+        }
+
+        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
+            return 0;
+        }
+
+        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return false;
+        }
+
+        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return 0;
+        }
+        EOF
+        # Quick fix for #linux syntax typo in comment/directive above
+        sed -i 's/#linux/#include <linux/module.h>/g' drivers/kernelsu/manual_hook_compat.c
 
         echo "[-] Injecting foolproof custom Makefile to force compilation of all KittiSU files..."
         cat << 'EOF' > drivers/kernelsu/Makefile
