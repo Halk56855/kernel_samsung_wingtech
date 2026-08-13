@@ -139,7 +139,21 @@ jobs:
                 f.write(content)
         EOF
 
-        # 8. معالجة وتجاوز خطأ filter_count في app_profile.c لنواة 4.19 القديمة
+        # 8. معالجة وتجاوز خطأ TWA_RESUME في supercall.c لنواة 4.19
+        python3 - << 'EOF'
+        import os
+        path = "drivers/kernelsu/supercall/supercall.c"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                content = f.read()
+            fix = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n"
+            if fix not in content:
+                content = fix + content
+            with open(path, "w") as f:
+                f.write(content)
+        EOF
+
+        # 9. معالجة وتجاوز خطأ filter_count في app_profile.c لنواة 4.19 القديمة
         python3 - << 'EOF'
         import os
         path = "drivers/kernelsu/policy/app_profile.c"
@@ -151,7 +165,7 @@ jobs:
                 f.write(content)
         EOF
 
-        # 9. معالجة وتجاوز أخطاء SELinux (sepolicy.c و rules.c) لنواة 4.19 القديمة بشكل نهائي وآمن
+        # 10. معالجة وتجاوز أخطاء SELinux (sepolicy.c و rules.c) لنواة 4.19 القديمة بشكل نهائي وآمن
         python3 - << 'EOF'
         import os
         rules_path = "drivers/kernelsu/selinux/rules.c"
@@ -173,7 +187,7 @@ jobs:
         """)
         EOF
 
-        # 10. معالجة أخطاء dispatch.c وإضافة التصريح الخارجي لـ init_task وتجاوز tasklist_lock
+        # 11. معالجة أخطاء dispatch.c وإضافة التصريح الخارجي لـ init_task وتجاوز tasklist_lock
         python3 - << 'EOF'
         import os
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
@@ -191,7 +205,7 @@ jobs:
                 f.write(content)
         EOF
 
-        # 11. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
+        # 12. توفير ترويسات التوافق المحلية (linux/minmax.h و linux/pgtable.h) لنواة 4.19 القديمة
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
         #ifndef _KSU_LINUX_MINMAX_H
@@ -209,17 +223,17 @@ jobs:
         #endif
         EOF
 
-        # 12. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
+        # 13. إزالة MODULE_IMPORT_NS لأنه غير مدعوم في نواة 4.19 القديمة
         find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        # 13. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
+        # 14. إصلاح توافق دالة access_ok لنواة 4.19 القديمة آلياً داخل kpm.c
         if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
           if ! grep -qs '#undef access_ok' drivers/kernelsu/kpm/kpm.c; then
             sed -i '/#include "kpm.h"/a #undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)' drivers/kernelsu/kpm/kpm.c
           fi
         fi
 
-        # 14. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
+        # 15. ضبط مسارات البحث للمترجم بدقة لضمان قراءة الهيدرز المحلية ومجلد uapi
         if [ -f "drivers/kernelsu/Makefile" ]; then
           sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
           echo 'ccflags-y += -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/kpm -I$(src)/policy' >> drivers/kernelsu/Makefile
