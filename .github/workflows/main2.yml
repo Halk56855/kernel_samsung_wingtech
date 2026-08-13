@@ -16,33 +16,38 @@ jobs:
         git clean -fdx
         git reset --hard
 
-    - name: Setup ReSukiSU cleanly and guarantee Kconfig existence
+    - name: Setup ReSukiSU cleanly (No KPM, No SuSFS, No System Drivers Modification)
       run: |
         # 1. تنظيف مجلد drivers/kernelsu واستنساخ ReSukiSU بالطريقة القياسية النظيفة
         rm -rf drivers/kernelsu
         git clone https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
 
-        # 2. تسوية الهيكل البرمجي إذا كانت الملفات داخل مجلد kernel فرعي دون المساس بملفات النواة الأصلية
+        # 2. تسوية الهيكل البرمجي إذا كانت الملفات داخل مجلد kernel فرعي دون المساس بمجلدات النواة أو الـ drivers الأصلية
         if [ -d "drivers/kernelsu/kernel" ]; then
           cp -r drivers/kernelsu/kernel/* drivers/kernelsu/
         fi
 
-        # 3. إنشاء ملف Kconfig بشكل قاطع بعد النسخ لضمان عدم فقده مطلقاً وتفادي خطأ Kconfig
-        cat << 'EOT' > drivers/kernelsu/Kconfig
+        # 3. تشغيل سكريبت الإعداد الرسمي لـ ReSukiSU إن وجد لتثبيت الخطافات بشكل آمن تماماً
+        if [ -f "drivers/kernelsu/setup.sh" ]; then
+          bash drivers/kernelsu/setup.sh || true
+        elif [ -f "drivers/kernelsu/kernel/setup.sh" ]; then
+          bash drivers/kernelsu/kernel/setup.sh || true
+        fi
+
+        # 4. التأكد من وجود ملف Kconfig و Makefile داخل مجلد ReSukiSU لتفادي أي خطأ أثناء بناء النواة
+        if [ ! -f "drivers/kernelsu/Kconfig" ]; then
+          cat << 'EOT' > drivers/kernelsu/Kconfig
         config KSU
             bool "KernelSU support"
             default y
-
-        config KSU_MANUAL_HOOK
-            bool "KernelSU Manual Hook Support"
-            default y
-
-        config KSU_SUCOMPAT
-            bool "KernelSU Sucompat Support"
-            default y
         EOT
+        fi
 
-        # 4. ربط ReSukiSU بنظام البناء العام للنواة بشكل نظيف وآمن تماماً
+        if [ ! -f "drivers/kernelsu/Makefile" ] && [ ! -f "drivers/kernelsu/Kbuild" ]; then
+          echo "obj-y += kernelsu/" > drivers/kernelsu/Makefile
+        fi
+
+        # 5. ربط ReSukiSU بنظام البناء العام للنواة بشكل نظيف وآمن تماماً
         if [ -f "drivers/Makefile" ]; then
           grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
@@ -94,8 +99,6 @@ jobs:
         DEFCONFIG_FILE="arch/arm64/configs/rsuntk-a04_defconfig"
         if [ -f "$DEFCONFIG_FILE" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG_FILE
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_FILE
-            echo "CONFIG_KSU_SUCOMPAT=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG_FILE
             echo "CONFIG_KPROBES=y" >> $DEFCONFIG_FILE
@@ -108,8 +111,6 @@ jobs:
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
-        CONFIG_KSU_MANUAL_HOOK=y
-        CONFIG_KSU_SUCOMPAT=y
         CONFIG_KALLSYMS=y
         CONFIG_KALLSYMS_ALL=y
         CONFIG_KPROBES=y
