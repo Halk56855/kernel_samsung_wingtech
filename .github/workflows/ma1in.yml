@@ -91,9 +91,19 @@ jobs:
           echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        echo "[-] Injecting custom Makefile for SukiSU-Ultra..."
+        echo "[-] Creating compatibility header for linux/pgtable.h on Kernel 4.19..."
+        mkdir -p drivers/kernelsu/include/linux
+        cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
+        #ifndef _KSU_COMPAT_PGTABLE_H
+        #define _KSU_COMPAT_PGTABLE_H
+        #include <asm/pgtable.h>
+        #include <linux/mm.h>
+        #endif
+        EOF
+
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra with include paths..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(src)/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
