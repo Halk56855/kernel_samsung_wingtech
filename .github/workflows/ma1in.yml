@@ -120,6 +120,16 @@ jobs:
         #endif
         EOF
 
+        cat << 'EOF' > drivers/kernelsu/include/linux/seccomp.h
+        #ifndef _KSU_COMPAT_SECCOMP_H
+        #define _KSU_COMPAT_SECCOMP_H
+        #include_next <linux/seccomp.h>
+        #ifndef filter_count
+        /* Stub or safe fallback macro for older kernels lacking filter_count in struct seccomp */
+        #endif
+        #endif
+        EOF
+
         echo "[-] Injecting custom Makefile for SukiSU-Ultra with include paths..."
         cat << 'EOF' > drivers/kernelsu/Makefile
         ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
@@ -148,7 +158,7 @@ jobs:
         # 2. Fix SELinux rules.c and selinux.c
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
-            with open(rules_path, "r") as fh: content = fh.read()
+            with open(rules_path, "r", errors="ignore") as fh: content = fh.read()
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
@@ -158,7 +168,7 @@ jobs:
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
-            with open(selinux_path, "r") as fh: content = fh.read()
+            with open(selinux_path, "r", errors="ignore") as fh: content = fh.read()
             if "#include \"selinux_defs.h\"" not in content:
                 content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
@@ -167,7 +177,7 @@ jobs:
         # 3. Fix kpm.c access_ok macro mismatch
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
-            with open(kpm_path, "r") as fh: content = fh.read()
+            with open(kpm_path, "r", errors="ignore") as fh: content = fh.read()
             lines = content.splitlines()
             last_include_idx = -1
             for i, line in enumerate(lines):
@@ -184,7 +194,7 @@ jobs:
         # 4. Safely wrap file_wrapper.c functions using Kernel Version Guards
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
-            with open(fw_path, "r") as fh:
+            with open(fw_path, "r", errors="ignore") as fh:
                 fw_content = fh.read()
             guarded_fw = "#include <linux/version.h>\n" + \
                          "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)\n" + \
@@ -196,7 +206,7 @@ jobs:
         # 5. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
         seccomp_path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(seccomp_path):
-            with open(seccomp_path, "r") as f:
+            with open(seccomp_path, "r", errors="ignore") as f:
                 seccomp_content = f.read()
             if "SECCOMP_ARCH_NATIVE_NR" in seccomp_content and "SECCOMP_COMPAT_NATIVE_FIX" not in seccomp_content:
                 seccomp_patch = """/* SECCOMP_COMPAT_NATIVE_FIX for Kernel 4.19 */
@@ -235,14 +245,24 @@ jobs:
         # 7. Ensure allowlist.c includes compatibility header for task_work
         allowlist_path = "drivers/kernelsu/policy/allowlist.c"
         if os.path.exists(allowlist_path):
-            with open(allowlist_path, "r") as f:
+            with open(allowlist_path, "r", errors="ignore") as f:
                 ac = f.read()
             if "#include <linux/task_work.h>" in ac and "#include \"../include/linux/task_work.h\"" not in ac:
                 ac = ac.replace("#include <linux/task_work.h>", "#include <linux/task_work.h>\n#include \"../include/linux/task_work.h\"")
                 with open(allowlist_path, "w") as f:
                     f.write(ac)
 
-        # 8. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 8. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
+        app_profile_path = "drivers/kernelsu/policy/app_profile.c"
+        if os.path.exists(app_profile_path):
+            with open(app_profile_path, "r", errors="ignore") as f:
+                ap_content = f.read()
+            # Replace filter_count atomic set/check with a dummy/noop or conditional block for 4.19
+            ap_content = ap_content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* filter_count not present in kernel 4.19 seccomp struct */")
+            with open(app_profile_path, "w") as f:
+                f.write(ap_content)
+
+        # 9. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
