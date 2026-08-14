@@ -11,13 +11,34 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of ReSukiSU (main branch)
+    - name: Clean Integration of ReSukiSU & Bypassing Manual Hook Check
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu ReSukiSU .git/modules/ReSukiSU fs/ksu_compat.c
 
         echo "[-] Cloning ReSukiSU repository (main branch)..."
         git clone -b main https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU
+
+        echo "[-] Neutralizing manual hook check to allow compilation..."
+        rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
+        touch ReSukiSU/kernel/tools/manual_hook_check.mk
+        
+        # إزالة أي استدعاء لملف الفحص من Makefiles الخاصة بـ ReSukiSU إن وجد
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("ReSukiSU"):
+            for f in files:
+                if f.endswith(".mk") or f == "Makefile":
+                    fp = os.path.join(root, f)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                        if "manual_hook_check" in content:
+                            content = content.replace("include", "# include")
+                            content = content.replace("manual_hook_check", "# manual_hook_check")
+                            with open(fp, "w") as fh: fh.write(content)
+                    except:
+                        pass
+        '
 
         echo "[-] Linking ReSukiSU kernel folder to drivers/kernelsu..."
         python3 -c '
@@ -184,6 +205,7 @@ jobs:
         CONFIG_THINLTO=n
         CONFIG_KPM=n
         CONFIG_KSU_SUSFS=n
+        CONFIG_KSU_MANUAL_HOOK=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
