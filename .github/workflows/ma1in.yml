@@ -202,7 +202,7 @@ jobs:
         CONFIG_LTO=n
         CONFIG_LTO_CLANG=n
         CONFIG_THINLTO=n
-        CONFIG_KPM=y
+        CONFIG_KPM=n
         CONFIG_KSU_SUSFS=n
         CONFIG_KSU_MANUAL_HOOK=y
         EOT
