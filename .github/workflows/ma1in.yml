@@ -150,15 +150,25 @@ jobs:
             content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
 
-        # 3. Neutralize unsupported file_operations members (iopoll, remap_file_range, REMAP_FILE_DEDUP) for Kernel 4.19
+        # 3. Safely neutralize unsupported file_wrapper.c functions for Kernel 4.19
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
             with open(fw_path, "r") as fh:
                 fw_lines = fh.readlines()
             new_fw_lines = []
+            skip_mode = False
             for line in fw_lines:
-                if "iopoll" in line or "remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
-                    new_fw_lines.append(f"/* 4.19 compat bypassed: {line} */\n")
+                if "ksu_wrapper_iopoll" in line or "ksu_wrapper_remap_file_range" in line:
+                    skip_mode = True
+                    new_fw_lines.append(f"/* Bypassed for 4.19: {line.strip()} */\n")
+                    continue
+                if skip_mode:
+                    new_fw_lines.append(f"/* {line.strip()} */\n")
+                    if "}" in line:
+                        skip_mode = False
+                    continue
+                if any(x in line for x in ['iopoll', 'remap_file_range', 'REMAP_FILE_DEDUP']):
+                    new_fw_lines.append(f"/* 4.19 compat bypassed: {line.strip()} */\n")
                 else:
                     new_fw_lines.append(line)
             with open(fw_path, "w") as fh:
