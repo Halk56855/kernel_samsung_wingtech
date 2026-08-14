@@ -74,7 +74,7 @@ jobs:
           echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        echo "[-] Creating compatibility header for linux/pgtable.h on Kernel 4.19..."
+        echo "[-] Creating compatibility headers for Kernel 4.19..."
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_COMPAT_PGTABLE_H
@@ -84,9 +84,32 @@ jobs:
         #endif
         EOF
 
+        mkdir -p drivers/kernelsu/include/uapi/linux
+        cat << 'EOF' > drivers/kernelsu/include/uapi/linux/mount.h
+        #ifndef _KSU_COMPAT_UAPI_LINUX_MOUNT_H
+        #define _KSU_COMPAT_UAPI_LINUX_MOUNT_H
+        #include <linux/types.h>
+        #ifndef MOVE_MOUNT_F_EMPTY_PATH
+        #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
+        #endif
+        #ifndef MOVE_MOUNT_T_EMPTY_PATH
+        #define MOVE_MOUNT_T_EMPTY_PATH 0x00000008
+        #endif
+        #ifndef MOVE_MOUNT_SET_GROUP
+        #define MOVE_MOUNT_SET_GROUP 0x00000010
+        #endif
+        #ifndef OPEN_TREE_CLONE
+        #define OPEN_TREE_CLONE 1
+        #endif
+        #ifndef OPEN_TREE_CLOEXEC
+        #define OPEN_TREE_CLOEXEC O_CLOEXEC
+        #endif
+        #endif
+        EOF
+
         echo "[-] Injecting custom Makefile for SukiSU-Ultra with include paths..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/include -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
