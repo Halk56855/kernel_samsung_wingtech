@@ -107,6 +107,19 @@ jobs:
         #endif
         EOF
 
+        cat << 'EOF' > drivers/kernelsu/include/linux/task_work.h
+        #ifndef _KSU_COMPAT_TASK_WORK_H
+        #define _KSU_COMPAT_TASK_WORK_H
+        #include_next <linux/task_work.h>
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 0
+        #endif
+        #ifndef fallthrough
+        #define fallthrough do {} while (0)
+        #endif
+        #endif
+        EOF
+
         echo "[-] Injecting custom Makefile for SukiSU-Ultra with include paths..."
         cat << 'EOF' > drivers/kernelsu/Makefile
         ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
@@ -219,7 +232,17 @@ jobs:
         }
         """)
 
-        # 7. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 7. Ensure allowlist.c includes compatibility header for task_work
+        allowlist_path = "drivers/kernelsu/policy/allowlist.c"
+        if os.path.exists(allowlist_path):
+            with open(allowlist_path, "r") as f:
+                ac = f.read()
+            if "#include <linux/task_work.h>" in ac and "#include \"../include/linux/task_work.h\"" not in ac:
+                ac = ac.replace("#include <linux/task_work.h>", "#include <linux/task_work.h>\n#include \"../include/linux/task_work.h\"")
+                with open(allowlist_path, "w") as f:
+                    f.write(ac)
+
+        # 8. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
