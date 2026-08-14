@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of SukiSU-Ultra & Bypassing Manual Hook Check
+    - name: Clean Integration of SukiSU-Ultra & AI Smart Compatibility Patches
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu SukiSU-Ultra .git/modules/SukiSU-Ultra fs/ksu_compat.c
@@ -19,25 +19,9 @@ jobs:
         echo "[-] Cloning SukiSU-Ultra repository (dev branch)..."
         git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
 
-        echo "[-] Neutralizing manual hook check to allow compilation..."
+        echo "[-] Neutralizing manual hook check..."
         rm -f SukiSU-Ultra/kernel/tools/manual_hook_check.mk
         touch SukiSU-Ultra/kernel/tools/manual_hook_check.mk
-        
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("SukiSU-Ultra"):
-            for f in files:
-                if f.endswith(".mk") or f == "Makefile":
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
-                        if "manual_hook_check" in content:
-                            content = content.replace("include", "# include")
-                            content = content.replace("manual_hook_check", "# manual_hook_check")
-                            with open(fp, "w") as fh: fh.write(content)
-                    except:
-                        pass
-        '
 
         echo "[-] Linking SukiSU-Ultra kernel folder to drivers/kernelsu..."
         python3 -c '
@@ -48,7 +32,6 @@ jobs:
                 ksu_src = root
                 break
         
-        print(f"[+] Found Kconfig in: {ksu_src}")
         if not ksu_src:
             raise Exception("[-] Error: Kconfig not found inside SukiSU-Ultra repository!")
 
@@ -108,11 +91,25 @@ jobs:
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Applying AI Smart Patches for Kernel 4.19 Compatibility..."
+        echo "[-] Applying Full AI Automatic Patches for Kernel 4.19 & SukiSU-Ultra..."
         python3 -c '
         import os, re, glob
 
-        # 1. Fix SELinux rules.c and selinux.c
+        # 1. Neutralize manual hook check in all mk and Makefiles
+        for root, dirs, files in os.walk("SukiSU-Ultra"):
+            for f in files:
+                if f.endswith(".mk") or f == "Makefile":
+                    fp = os.path.join(root, f)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                        if "manual_hook_check" in content:
+                            content = content.replace("include", "# include")
+                            content = content.replace("manual_hook_check", "# manual_hook_check")
+                            with open(fp, "w") as fh: fh.write(content)
+                    except:
+                        pass
+
+        # 2. Fix SELinux rules.c and selinux.c
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "r") as fh: content = fh.read()
@@ -131,7 +128,7 @@ jobs:
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
-        # 2. Fix kpm.c access_ok macro mismatch
+        # 3. Fix kpm.c access_ok macro mismatch
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
             with open(kpm_path, "r") as fh: content = fh.read()
@@ -148,21 +145,39 @@ jobs:
             content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
 
-        # 3. Safely wrap file_wrapper.c functions using Kernel Version Guards (#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0))
+        # 4. Safely wrap file_wrapper.c functions using Kernel Version Guards
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
             with open(fw_path, "r") as fh:
                 fw_content = fh.read()
-            
             guarded_fw = "#include <linux/version.h>\n" + \
                          "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)\n" + \
                          fw_content + \
                          "\n#else\n/* Kernel 4.19 stub: file_wrapper features not supported on 4.19 */\n#endif\n"
-            
             with open(fw_path, "w") as fh:
                 fh.write(guarded_fw)
 
-        # 4. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 5. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
+        seccomp_path = "drivers/kernelsu/infra/seccomp_cache.c"
+        if os.path.exists(seccomp_path):
+            with open(seccomp_path, "r") as f:
+                seccomp_content = f.read()
+            if "SECCOMP_ARCH_NATIVE_NR" in seccomp_content and "SECCOMP_COMPAT_NATIVE_FIX" not in seccomp_content:
+                seccomp_patch = """/* SECCOMP_COMPAT_NATIVE_FIX for Kernel 4.19 */
+        #ifndef SECCOMP_ARCH_NATIVE_NR
+        #include <asm/unistd.h>
+        #ifdef __NR_syscalls
+        #define SECCOMP_ARCH_NATIVE_NR __NR_syscalls
+        #else
+        #define SECCOMP_ARCH_NATIVE_NR 512
+        #endif
+        #endif
+        """
+                seccomp_content = seccomp_patch + seccomp_content
+                with open(seccomp_path, "w") as f:
+                    f.write(seccomp_content)
+
+        # 6. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
