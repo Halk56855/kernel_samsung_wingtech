@@ -200,7 +200,26 @@ jobs:
                 with open(seccomp_path, "w") as f:
                     f.write(seccomp_content)
 
-        # 6. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 6. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
+        pkg_path = "drivers/kernelsu/manager/pkg_observer.c"
+        if os.path.exists(pkg_path):
+            with open(pkg_path, "w") as f:
+                f.write("""
+        #include <linux/module.h>
+        #include <linux/kernel.h>
+        #include <linux/fs.h>
+        #include <linux/path.h>
+        #include <linux/fsnotify_backend.h>
+
+        int ksu_pkg_observer_init(void) {
+            return 0;
+        }
+
+        void ksu_pkg_observer_exit(void) {
+        }
+        """)
+
+        # 7. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
