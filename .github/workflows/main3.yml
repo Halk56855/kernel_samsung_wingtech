@@ -5,442 +5,262 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean repository
+    - name: Clean Integration of SukiSU-Ultra (dev branch)
       run: |
-        git reset --hard || true
-        git clean -fd || true
+        echo "[-] Cleaning up old remnants..."
+        rm -rf drivers/kernelsu SukiSU-Ultra .git/modules/SukiSU-Ultra fs/ksu_compat.c
 
-    - name: Integrate SukiSU-Ultra & Proper Global Stubs for Kernel 4.19
-      run: |
-        rm -rf drivers/kernelsu
-        git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_sukisu
+        echo "[-] Cloning SukiSU-Ultra repository (dev branch)..."
+        git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
+
+        echo "[-] Linking SukiSU-Ultra kernel folder to drivers/kernelsu..."
+        python3 -c '
+        import os, shutil
+        ksu_src = None
+        for root, dirs, files in os.walk("SukiSU-Ultra"):
+            if "Kconfig" in files:
+                ksu_src = root
+                break
         
-        # 1. نسخ نواة SukiSU-Ultra الأساسية
-        mkdir -p drivers/kernelsu
-        cp -rf temp_sukisu/kernel/* drivers/kernelsu/
-        
-        # 2. نسخ مجلد uapi الجذري إن وجد
-        if [ -d "temp_sukisu/uapi" ]; then
-          mkdir -p drivers/kernelsu/uapi
-          cp -rf temp_sukisu/uapi/* drivers/kernelsu/uapi/
-        fi
-        
-        rm -rf temp_sukisu
+        print(f"[+] Found Kconfig in: {ksu_src}")
+        if not ksu_src:
+            raise Exception("[-] Error: Kconfig not found inside SukiSU-Ultra repository!")
 
-        # 3. تعطيل SuSFS وتنظيفه بشكل آمن
-        rm -rf drivers/kernelsu/susfs
-        rm -rf drivers/kernelsu/feature/susfs*
+        if os.path.islink("drivers/kernelsu") or os.path.exists("drivers/kernelsu"):
+            if os.path.islink("drivers/kernelsu"):
+                os.unlink("drivers/kernelsu")
+            else:
+                shutil.rmtree("drivers/kernelsu")
 
-        # 4. توفير ملف ترويسة KPM فارغ (kpm.h) لتجنب أخطاء التضمين في supercall.c
-        mkdir -p drivers/kernelsu/kpm
-        cat << 'EOF' > drivers/kernelsu/kpm/kpm.h
-        #ifndef __KSU_KPM_H__
-        #define __KSU_KPM_H__
+        os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
+        print("[+] Symlink drivers/kernelsu created successfully")
+        '
 
+        echo "[-] Injecting advanced Kernel 4.19 compatibility layer into fs/ksu_compat.c..."
+        cat << 'EOF' > fs/ksu_compat.c
+        #include <linux/module.h>
         #include <linux/types.h>
-
-        static inline int kpm_init(void) { return 0; }
-        static inline void kpm_exit(void) {}
-
-        #endif
-        EOF
-
-        # 5. إنشاء ملف التوافق C الحقيقي (compat_stubs.c) للرموز العامة لضمان عدم وجود أي undefined reference
-        cat << 'EOF' > drivers/kernelsu/compat_stubs.c
-        #include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
+        #include <linux/fs.h>
         #include <linux/sched.h>
-        #include <linux/pid.h>
         #include <linux/uaccess.h>
+        #include <linux/pid.h>
+        #include <linux/cred.h>
 
-        void *selinux_cred = NULL;
+        // Compatibility stubs for Kernel 4.19 (nofault helpers)
+        long copy_from_user_nofault(void *to, const void __user *from, size_t n) {
+            long res = -EFAULT;
+            pagefault_disable();
+            if (__copy_from_user_inatomic(to, from, n) == 0)
+                res = 0;
+            pagefault_enable();
+            return res;
+        }
 
-        int handle_sepolicy(void *arg) {
+        long copy_to_user_nofault(void __user *to, const void *from, size_t n) {
+            long res = -EFAULT;
+            pagefault_disable();
+            if (__copy_to_user_inatomic(to, from, n) == 0)
+                res = 0;
+            pagefault_enable();
+            return res;
+        }
+
+        long strncpy_from_user_nofault(char *dst, const char __user *src, long count) {
+            long res = -EFAULT;
+            pagefault_disable();
+            res = strncpy_from_user(dst, src, count);
+            pagefault_enable();
+            return res;
+        }
+
+        struct pid *task_pgrp(struct task_struct *task) {
+            return task->signal ? task->signal->pgrp : NULL;
+        }
+
+        struct pid *task_session(struct task_struct *task) {
+            return task->signal ? task->signal->session : NULL;
+        }
+
+        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+            return false;
+        }
+
+        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
+            return 0;
+        }
+
+        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return false;
+        }
+
+        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+            return 0;
+        }
+
+        // Stubs for missing handlers if not present in 4.19
+        int handle_sepolicy(void *policy, unsigned int size) {
             return 0;
         }
 
         int ksu_install_file_wrapper(void) {
             return 0;
         }
-
-        long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_from_user_inatomic(dst, unsafe_addr, count);
-            pagefault_enable();
-            return ret < 0 ? ret : count;
-        }
-
-        long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_from_user_inatomic(dst, src, size);
-            pagefault_enable();
-            return ret;
-        }
-
-        long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size) {
-            long ret;
-            pagefault_disable();
-            ret = __copy_to_user_inatomic(dst, src, size);
-            pagefault_enable();
-            return ret;
-        }
-
-        struct pid *task_pgrp(struct task_struct *task) {
-            return task && task->signal ? task->signal->pgrp : NULL;
-        }
-
-        struct pid *task_session(struct task_struct *task) {
-            return task && task->signal ? task->signal->session : NULL;
-        }
         EOF
 
-        # 6. إنشاء ملف الترويسة compat_stubs.h بالإعلانات الخارجية (extern)
-        cat << 'EOF' > drivers/kernelsu/compat_stubs.h
-        #ifndef __KSU_COMPAT_STUBS_H__
-        #define __KSU_COMPAT_STUBS_H__
-
-        #include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        #include <linux/sched.h>
-        #include <linux/pid.h>
-        #include <linux/uaccess.h>
-
-        extern void *selinux_cred;
-
-        int handle_sepolicy(void *arg);
-        int ksu_install_file_wrapper(void);
-        long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count);
-        long copy_from_user_nofault(void *dst, const void __user *src, unsigned long size);
-        long copy_to_user_nofault(void __user *dst, const void *src, unsigned long size);
-        struct pid *task_pgrp(struct task_struct *task);
-        struct pid *task_session(struct task_struct *task);
-
-        #endif
-        EOF
-
-        # 7. توفير ملف file_wrapper.c توافقي ومتكامل لنواة 4.19
-        if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-          cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
-        #include <linux/fs.h>
-        #include <linux/file.h>
-        #include <linux/dcache.h>
-
-        static char *ksu_wrapper_d_dname(struct dentry *dentry, char *buffer, int buflen) {
-            return NULL;
-        }
-
-        static void ksu_wrapper_release(struct dentry *dentry) {
-        }
-
-        const struct dentry_operations ksu_file_wrapper_d_ops = {
-            .d_dname = ksu_wrapper_d_dname,
-            .d_release = ksu_wrapper_release,
-        };
-
-        struct file *ksu_file_open_wrapper(const char *filename, int flags, umode_t mode) {
-            return NULL;
-        }
-
-        void ksu_file_close_wrapper(struct file *file) {
-        }
-        EOF
+        if ! grep -q "ksu_compat.o" fs/Makefile; then
+          echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        # 8. إصلاح توافق SECCOMP_ARCH_NATIVE_NR لنواة 4.19
-        python3 - << 'EOF'
-        import os
-        path = "drivers/kernelsu/infra/seccomp_cache.c"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-            fix = "#ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR NR_syscalls\n#endif\n"
-            content = fix + content
-            with open(path, "w") as f:
-                f.write(content)
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra..."
+        cat << 'EOF' > drivers/kernelsu/Makefile
+        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+        obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        # 9. تصحيح تضمينات uapi آلياً لتتوافق مع بيئة نواة 4.19
-        find drivers/kernelsu -type f -name "*.c" -o -name "*.h" | xargs sed -i 's|#include <uapi/|#include <|g'
-
-        # 10. إصلاح توافق pkg_observer.c مع نظام fsnotify في نواة 4.19
-        if [ -f "drivers/kernelsu/manager/pkg_observer.c" ]; then
-          cat << 'EOF' > drivers/kernelsu/manager/pkg_observer.c
-        #include <linux/fs.h>
-        #include <linux/fsnotify.h>
-        #include <linux/slab.h>
-        #include <linux/path.h>
-        #include <linux/sched.h>
-        #include <linux/version.h>
-
-        #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
-        static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,
-                    struct inode *inode, struct inode *dir,
-                    const struct qstr *name, u32 cookie)
-        #else
-        static int ksu_handle_event(struct fsnotify_group *group, struct inode *to_tell,
-                    u32 mask, const void *data, int data_type,
-                    const unsigned char *file_name, u32 len,
-                    struct fsnotify_iter_info *iter_info)
-        #endif
-        {
-            return 0;
-        }
-
-        static void ksu_free_mark(struct fsnotify_mark *mark)
-        {
-        }
-
-        static const struct fsnotify_ops ksu_fsnotify_ops = {
-        #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
-            .handle_inode_event = ksu_handle_inode_event,
-        #else
-            .handle_event = ksu_handle_event,
-        #endif
-            .free_mark = ksu_free_mark,
-        };
-
-        int ksu_pkg_observer_init(void)
-        {
-            return 0;
-        }
-
-        void ksu_pkg_observer_exit(void)
-        {
-        }
-        EOF
-        fi
-
-        # 11. إصلاح توافق TWA_RESUME و fallthrough داخل allowlist.c
-        python3 - << 'EOF'
-        import os
-        path = "drivers/kernelsu/policy/allowlist.c"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-            fixes = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n#ifndef fallthrough\n#define fallthrough\n#endif\n"
-            content = fixes + content
-            content = content.replace("fallthrough;", "/* fallthrough */;")
-            with open(path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 12. معالجة وتجاوز خطأ TWA_RESUME في supercall.c
-        python3 - << 'EOF'
-        import os
-        path = "drivers/kernelsu/supercall/supercall.c"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-            fix = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n"
-            if fix not in content:
-                content = fix + content
-            with open(path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 13. إزالة وتعطيل أي استخدام لـ filter_count شمولياً وجذرياً
-        python3 - << 'EOF'
-        import os
-        for root, dirs, files in os.walk("drivers/kernelsu"):
-            for file in files:
-                if file.endswith((".c", ".h")):
-                    path = os.path.join(root, file)
-                    try:
-                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                            lines = f.readlines()
-                        new_lines = []
-                        for line in lines:
-                            if "filter_count" in line:
-                                new_lines.append(f"/* REMOVED: {line.strip()} */\n")
-                            else:
-                                new_lines.append(line)
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.writelines(new_lines)
-                    except Exception as e:
-                        print(f"Error processing {path}: {e}")
-        EOF
-
-        # 14. معالجة وتجاوز ملفات SELinux الفرعية لتتلاءم مع النواة القديمة
-        python3 - << 'EOF'
-        import os
+        echo "[-] Fixing SELinux rules.c, selinux.c, and KPM access_ok for Kernel 4.19..."
+        python3 -c '
+        import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
-            with open(rules_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        int ksu_selinux_init(void) { return 0; }
-        void ksu_apply_selinux_rules(void) {}
-        """)
+            with open(rules_path, "r") as fh: content = fh.read()
+            content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            if "db = &policydb;" in content:
+                content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
+            else:
+                content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
+            with open(rules_path, "w") as fh: fh.write(content)
 
-        sepolicy_path = "drivers/kernelsu/selinux/sepolicy.c"
-        if os.path.exists(sepolicy_path):
-            with open(sepolicy_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        """)
+        selinux_path = "drivers/kernelsu/selinux/selinux.c"
+        if os.path.exists(selinux_path):
+            with open(selinux_path, "r") as fh: content = fh.read()
+            if "#include \"selinux_defs.h\"" not in content:
+                content = "#include \"selinux_defs.h\"\n" + content
+            if "selinux_cred" not in content:
+                content = "#define selinux_cred(cred) ((struct task_security_struct *)(cred)->security)\n" + content
+            content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
+            with open(selinux_path, "w") as fh: fh.write(content)
 
-        hide_path = "drivers/kernelsu/feature/selinux_hide.c"
-        if os.path.exists(hide_path):
-            with open(hide_path, "w") as f:
-                f.write("""#include <linux/version.h>
-        #include <linux/types.h>
-        #include <linux/kernel.h>
-        int ksu_selinux_hide_init(void) { return 0; }
-        void ksu_selinux_hide_exit(void) {}
-        """)
-        EOF
+        kpm_path = "drivers/kernelsu/kpm/kpm.c"
+        if os.path.exists(kpm_path):
+            with open(kpm_path, "r") as fh: content = fh.read()
+            compat_macro = "#undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)\n"
+            if compat_macro not in content:
+                content = compat_macro + content
+            with open(kpm_path, "w") as fh: fh.write(content)
+        '
 
-        # 15. معالجة أخطاء dispatch.c وتجاوز tasklist_lock
-        python3 - << 'EOF'
-        import os
-        dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
-        if os.path.exists(dispatch_path):
-            with open(dispatch_path, "r") as f:
-                content = f.read()
-            content = content.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
-            content = content.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
-            if "extern struct task_struct init_task;" not in content:
-                content = "extern struct task_struct init_task;\n" + content
-            with open(dispatch_path, "w") as f:
-                f.write(content)
-        EOF
-
-        # 16. توفير ترويسات التوافق المحلية (minmax.h و pgtable.h)
-        mkdir -p drivers/kernelsu/include/linux
-        cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
-        #ifndef _KSU_LINUX_MINMAX_H
-        #define _KSU_LINUX_MINMAX_H
-        #include <linux/kernel.h>
-        #include <linux/types.h>
-        #endif
-        EOF
-
-        cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
-        #ifndef _KSU_LINUX_PGTABLE_H
-        #define _KSU_LINUX_PGTABLE_H
-        #include <linux/mm.h>
-        #include <asm/pgtable.h>
-        #endif
-        EOF
-
-        # 17. إزالة MODULE_IMPORT_NS لعدم دعمه في نواة 4.19
-        find drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
-
-        # 18. ضمان تضمين ملف التوافق و ربط compat_stubs.o في الـ Makefile
-        if [ -f "drivers/kernelsu/Makefile" ]; then
-          sed -i '/ccflags-y/d' drivers/kernelsu/Makefile
-          sed -i '/subdir-ccflags-y/d' drivers/kernelsu/Makefile
-          echo 'subdir-ccflags-y := -include $(src)/compat_stubs.h -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/include/uapi -I$(src)/policy' >> drivers/kernelsu/Makefile
-          
-          if ! grep -q "compat_stubs.o" drivers/kernelsu/Makefile; then
-            echo 'obj-y += compat_stubs.o' >> drivers/kernelsu/Makefile
-          fi
+        echo "[-] Wiring Kconfig and Makefile safely into drivers..."
+        if ! grep -q "kernelsu" drivers/Kconfig; then
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
         fi
-
         if ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
-          sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"\n' drivers/Kconfig || echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
-
-    - name: Install dependencies
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip \
-          wget xz-utils device-tree-compiler libfdt-dev \
-          gcc-arm-linux-gnueabi
+          libncurses5-dev ccache make git zip wget xz-utils \
+          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
 
-    - name: Prepare directories
+    - name: Prepare Toolchains directories
       run: mkdir -p toolchain/gcc toolchain/clang
 
-    - name: Download GCC toolchain
+    - name: Download GCC Toolchain
       run: |
         cd toolchain/gcc
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        wget -q --show-progress --retry-connrefused --waitretry=2 --read-timeout=30 -t 5 \
+          https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz || \
+        wget -q --show-progress \
+          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C ./
 
-    - name: Download Clang r383902
+    - name: Download Compatible Clang Toolchain
       run: |
         cd toolchain/clang
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        wget -q --show-progress \
+          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
         mkdir -p host/linux-x86/clang-r383902
         tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
 
-    - name: Export environment variables
+    - name: Set Environment Variables
       run: |
-        GCC_BIN=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
-        CLANG_BIN=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin
+        CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
+        GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
         
-        echo "CROSS_COMPILE=$GCC_BIN/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "$CLANG_PATH" >> $GITHUB_PATH
+
+        echo "CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "LD=ld.lld" >> $GITHUB_ENV
+        echo "AR=llvm-ar" >> $GITHUB_ENV
+        echo "NM=llvm-nm" >> $GITHUB_ENV
+        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
+        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
+        echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w" >> $GITHUB_ENV
-        echo "HOSTCFLAGS=-w" >> $GITHUB_ENV
-        echo "LD=$GCC_BIN/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=address-of-packed-member" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Build Non-GKI Kernel 4.19
+    - name: Configure and Compile Kernel
       run: |
-        make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          rsuntk-a04_defconfig
+        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
-        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
-          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        if [ -f "arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
+
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
         CONFIG_KSU=y
-        CONFIG_KPM=n
-        CONFIG_KSU_SUSFS=n
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_KPROBE_HOOKS=y
+        CONFIG_KALLSYMS=y
+        CONFIG_KALLSYMS_ALL=y
+        CONFIG_SECURITY_SELINUX=y
+        CONFIG_SECURITY_SELINUX_DISABLE=y
+        CONFIG_SECURITY_SELINUX_DEVELOP=y
+        CONFIG_LTO=n
+        CONFIG_LTO_CLANG=n
+        CONFIG_THINLTO=n
+        CONFIG_KPM=y
+        CONFIG_KSU_SUSFS=n
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
-        make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
-          KCFLAGS="-w" HOSTCFLAGS="-w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          -j1
+        make -C $(pwd) O=$(pwd)/out prepare
+        make -C $(pwd) O=$(pwd)/out scripts
+        make -C $(pwd) O=$(pwd)/out security/
 
-    - name: Package with AnyKernel3-a04
+        make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
+
+    - name: Package into AnyKernel3 Flashable Zip
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Kernel4.19-SukiSU-Ultra-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-SukiSU-Ultra-AnyKernel3.zip * -x .git README.md LICENSE
 
-    - name: Upload kernel artifact
+    - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Kernel4.19-SukiSU-Ultra-Flashable-Zip
-        path: A04-Kernel4.19-SukiSU-Ultra-AnyKernel3.zip
+        name: A04-SukiSU-Ultra-4.19-Zip
+        path: A04-SukiSU-Ultra-AnyKernel3.zip
