@@ -1,4 +1,4 @@
-Name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - SukiSU-Ultra)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - SukiSU-Ultra)
 
 on:
   workflow_dispatch:
