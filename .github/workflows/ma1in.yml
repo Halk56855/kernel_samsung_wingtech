@@ -98,7 +98,7 @@ jobs:
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Fixing SELinux and KPM access_ok for Kernel 4.19..."
+        echo "[-] Fixing SELinux and patching kpm.c access_ok for Kernel 4.19..."
         python3 -c '
         import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
@@ -122,9 +122,19 @@ jobs:
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
             with open(kpm_path, "r") as fh: content = fh.read()
-            patch_header = "#undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)\n"
-            if patch_header not in content:
-                content = patch_header + content
+            lines = content.splitlines()
+            last_include_idx = -1
+            for i, line in enumerate(lines):
+                if line.strip().startswith("#include"):
+                    last_include_idx = i
+            
+            patch_snippet = "\n#undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)\n"
+            if last_include_idx != -1:
+                lines.insert(last_include_idx + 1, patch_snippet)
+            else:
+                lines.insert(0, patch_snippet)
+            
+            content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
         '
 
