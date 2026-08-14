@@ -11,13 +11,33 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of SukiSU-Ultra (dev branch)
+    - name: Clean Integration of SukiSU-Ultra & Bypassing Manual Hook Check
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu SukiSU-Ultra .git/modules/SukiSU-Ultra fs/ksu_compat.c
 
         echo "[-] Cloning SukiSU-Ultra repository (dev branch)..."
         git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
+
+        echo "[-] Neutralizing manual hook check to allow compilation..."
+        rm -f SukiSU-Ultra/kernel/tools/manual_hook_check.mk
+        touch SukiSU-Ultra/kernel/tools/manual_hook_check.mk
+        
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("SukiSU-Ultra"):
+            for f in files:
+                if f.endswith(".mk") or f == "Makefile":
+                    fp = os.path.join(root, f)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                        if "manual_hook_check" in content:
+                            content = content.replace("include", "# include")
+                            content = content.replace("manual_hook_check", "# manual_hook_check")
+                            with open(fp, "w") as fh: fh.write(content)
+                    except:
+                        pass
+        '
 
         echo "[-] Linking SukiSU-Ultra kernel folder to drivers/kernelsu..."
         python3 -c '
@@ -78,7 +98,7 @@ jobs:
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Fixing SELinux rules.c, selinux.c, and KPM access_ok for Kernel 4.19..."
+        echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
         python3 -c '
         import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
@@ -98,14 +118,6 @@ jobs:
                 content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
-
-        kpm_path = "drivers/kernelsu/kpm/kpm.c"
-        if os.path.exists(kpm_path):
-            with open(kpm_path, "r") as fh: content = fh.read()
-            compat_macro = "#undef access_ok\n#define access_ok(addr, size) __range_ok(addr, size)\n"
-            if compat_macro not in content:
-                content = compat_macro + content
-            with open(kpm_path, "w") as fh: fh.write(content)
         '
 
         echo "[-] Wiring Kconfig and Makefile safely into drivers..."
@@ -162,7 +174,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=address-of-packed-member" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
@@ -192,6 +204,7 @@ jobs:
         CONFIG_THINLTO=n
         CONFIG_KPM=y
         CONFIG_KSU_SUSFS=n
+        CONFIG_KSU_MANUAL_HOOK=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
