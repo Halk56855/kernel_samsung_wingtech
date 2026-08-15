@@ -74,7 +74,7 @@ jobs:
           echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        echo "[-] Creating all missing headers for Kernel 4.19 & SELinux compatibility..."
+        echo "[-] Creating all missing headers for Kernel 4.19 & task_work compatibility..."
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
         #ifndef _KSU_COMPAT_MINMAX_H
@@ -126,6 +126,7 @@ jobs:
         cat << 'EOF' > drivers/kernelsu/include/linux/task_work.h
         #ifndef _KSU_COMPAT_TASK_WORK_H
         #define _KSU_COMPAT_TASK_WORK_H
+        #include <linux/version.h>
         #ifndef TWA_RESUME
         #define TWA_RESUME 1
         #endif
@@ -134,6 +135,12 @@ jobs:
         #endif
         #ifndef fallthrough
         #define fallthrough do {} while (0)
+        #endif
+        #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+        struct task_struct;
+        struct callback_head;
+        extern int task_work_add(struct task_struct *task, struct callback_head *twork);
+        #define task_work_add(task, twork, notify) task_work_add(task, twork)
         #endif
         #endif
         EOF
@@ -147,9 +154,9 @@ jobs:
         #endif
         EOF
 
-        echo "[-] Injecting custom Makefile for SukiSU-Ultra with 4.19 definitions..."
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux -DTWA_RESUME=1 -DTWA_NONE=0
+        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
@@ -407,7 +414,7 @@ jobs:
         CONFIG_LTO=n
         CONFIG_LTO_CLANG=n
         CONFIG_THINLTO=n
-        CONFIG_KPM=y
+        CONFIG_KPM=n
         CONFIG_KSU_SUSFS=n
         CONFIG_KSU_MANUAL_HOOK=y
         EOT
