@@ -50,7 +50,10 @@ jobs:
                         with open(path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
 
+                        # 4.19 header replacements
                         content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
+                        content = content.replace("<linux/minmax.h>", "<linux/kernel.h>")
+
                         new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
                         new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", new_content)
 
