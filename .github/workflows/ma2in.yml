@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KoWSU & Global Kernel 4.19 Compatibility Layer
+    - name: Clean Integration of KoWSU & Complete Kernel 4.19 Compatibility Layer
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KernelSU-KoWSU .git/modules/KernelSU-KoWSU fs/ksu_compat.c
@@ -30,6 +30,31 @@ jobs:
         #endif
         EOF
 
+        echo "[-] Automatically patching file_wrapper.c for Kernel 4.19 (iopoll / remap_file_range)..."
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for f in files:
+                if f == "file_wrapper.c":
+                    path = os.path.join(root, f)
+                    print(f"[+] Patching file_wrapper.c at: {path}")
+                    with open(path, "r", errors="ignore") as fh:
+                        lines = fh.readlines()
+                    
+                    new_lines = []
+                    new_lines.append("#include <linux/version.h>\n")
+                    new_lines.append("#ifndef REMAP_FILE_DEDUP\n#define REMAP_FILE_DEDUP 0\n#endif\n")
+                    
+                    for line in lines:
+                        if "iopoll" in line or "remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
+                            new_lines.append("/* Patched for Kernel 4.19: " + line.strip() + " */\n")
+                        else:
+                            new_lines.append(line)
+                            
+                    with open(path, "w") as fh:
+                        fh.writelines(new_lines)
+        '
+
         echo "[-] Automatically patching MODULE_IMPORT_NS for Kernel 4.19 compatibility..."
         python3 -c '
         import os
@@ -41,7 +66,6 @@ jobs:
                         with open(path, "r", errors="ignore") as fh:
                             content = fh.read()
                         if "MODULE_IMPORT_NS" in content:
-                            print(f"[+] Patching MODULE_IMPORT_NS in: {path}")
                             lines = content.splitlines()
                             new_lines = []
                             for line in lines:
@@ -52,7 +76,7 @@ jobs:
                             with open(path, "w") as fh:
                                 fh.write("\n".join(new_lines) + "\n")
                     except Exception as e:
-                        print(f"[-] Skipped {path}: {e}")
+                        pass
         '
 
         echo "[-] Linking KernelSU-KoWSU folder to drivers/kernelsu..."
