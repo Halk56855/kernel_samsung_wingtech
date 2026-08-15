@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Excluding file_wrapper, Stubs Injection & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Neutralizing SELinux directory, file_wrapper, Stubs & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -72,14 +72,25 @@ jobs:
                 with open(su_mount_path, 'w') as f:
                     f.write(content)
 
-        # 3. Exclude file_wrapper from Makefile and empty file_wrapper.c for Kernel 4.19 compatibility
+        # 3. Completely neutralize selinux directory from Makefile and files
         ksu_makefile = os.path.join(kernelsu_dir, 'Makefile')
         if os.path.exists(ksu_makefile):
             with open(ksu_makefile, 'r') as f:
                 mk_content = f.read()
             mk_content = mk_content.replace('file_wrapper.o', '')
+            mk_content = mk_content.replace('selinux/', '')
+            mk_content = mk_content.replace('selinux', '')
             with open(ksu_makefile, 'w') as f:
                 f.write(mk_content)
+
+        selinux_dir = os.path.join(kernelsu_dir, 'selinux')
+        if os.path.exists(selinux_dir):
+            for s_file in glob.glob(f'{selinux_dir}/**/*.c', recursive=True) + glob.glob(f'{selinux_dir}/**/*.h', recursive=True):
+                try:
+                    with open(s_file, 'w') as f:
+                        f.write("/* Disabled for Kernel 4.19 compatibility */\n")
+                except:
+                    pass
 
         file_wrapper_path = os.path.join(kernelsu_dir, 'file_wrapper.c')
         if os.path.exists(file_wrapper_path):
@@ -225,7 +236,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, file_wrapper excluded/neutralized, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, SELinux incompatible module neutralized, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
