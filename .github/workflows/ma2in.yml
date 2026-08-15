@@ -13,7 +13,7 @@ jobs:
 
     - name: Clean Integration of KoWSU & Complete Kernel 4.19 Compatibility Layer
       run: |
-        python3 -c '
+        cat << 'EOF' > setup_kernel.py
         import os, shutil, re
 
         print("[-] Cleaning up old remnants...")
@@ -29,48 +29,34 @@ jobs:
         print("[-] Creating global include/linux/pgtable.h for Kernel 4.19...")
         os.makedirs("include/linux", exist_ok=True)
         with open("include/linux/pgtable.h", "w") as f:
-            f.write("""#ifndef _COMPAT_LINUX_PGTABLE_H
-#define _COMPAT_LINUX_PGTABLE_H
-#include <asm/pgtable.h>
-#include <linux/mm.h>
-#include <linux/highmem.h>
-#endif
-""")
+            f.write("#ifndef _COMPAT_LINUX_PGTABLE_H\n")
+            f.write("#define _COMPAT_LINUX_PGTABLE_H\n")
+            f.write("#include <asm/pgtable.h>\n")
+            f.write("#include <linux/mm.h>\n")
+            f.write("#include <linux/highmem.h>\n")
+            f.write("#endif\n")
 
         print("[-] Creating clean file_wrapper.c for Kernel 4.19...")
         os.makedirs("drivers/kernelsu/infra", exist_ok=True)
         with open("drivers/kernelsu/infra/file_wrapper.c", "w") as f:
-            f.write("""#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/version.h>
-#include <linux/uaccess.h>
-#include <linux/slab.h>
-
-struct file *ksu_filp_open(const char *filename, int flags, umode_t mode) {
-    return filp_open(filename, flags, mode);
-}
-
-int ksu_filp_close(struct file *file, fl_owner_t id) {
-    return filp_close(file, id);
-}
-
-ssize_t ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {
-    return kernel_read(file, buf, count, pos);
-}
-
-ssize_t ksu_kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos) {
-    return kernel_write(file, buf, count, pos);
-}
-
-bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-    return false;
-}
-
-int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-    return 0;
-}
-""")
+            f.write("#include <linux/module.h>\n")
+            f.write("#include <linux/kernel.h>\n")
+            f.write("#include <linux/fs.h>\n")
+            f.write("#include <linux/version.h>\n")
+            f.write("#include <linux/uaccess.h>\n")
+            f.write("#include <linux/slab.h>\n\n")
+            f.write("struct file *ksu_filp_open(const char *filename, int flags, umode_t mode) {\n")
+            f.write("    return filp_open(filename, flags, mode);\n}\n\n")
+            f.write("int ksu_filp_close(struct file *file, fl_owner_t id) {\n")
+            f.write("    return filp_close(file, id);\n}\n\n")
+            f.write("ssize_t ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {\n")
+            f.write("    return kernel_read(file, buf, count, pos);\n}\n\n")
+            f.write("ssize_t ksu_kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos) {\n")
+            f.write("    return kernel_write(file, buf, count, pos);\n}\n\n")
+            f.write("bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {\n")
+            f.write("    return false;\n}\n\n")
+            f.write("int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {\n")
+            f.write("    return 0;\n}\n")
 
         print("[-] Patching MODULE_IMPORT_NS in KoWSU...")
         for root, dirs, files in os.walk("KernelSU-KoWSU"):
@@ -106,28 +92,15 @@ int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_
 
         print("[-] Injecting compatibility layer into fs/...")
         with open("fs/ksu_compat.c", "w") as f:
-            f.write("""#include <linux/module.h>
-#include <linux/types.h>
-#include <linux/fs.h>
-#include <linux/sched.h>
-#include <linux/uaccess.h>
-
-bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-    return false;
-}
-
-int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-    return 0;
-}
-
-bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-    return false;
-}
-
-int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-    return 0;
-}
-""")
+            f.write("#include <linux/module.h>\n")
+            f.write("#include <linux/types.h>\n")
+            f.write("#include <linux/fs.h>\n")
+            f.write("#include <linux/sched.h>\n")
+            f.write("#include <linux/uaccess.h>\n\n")
+            f.write("bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {\n    return false;\n}\n\n")
+            f.write("int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {\n    return 0;\n}\n\n")
+            f.write("bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {\n    return false;\n}\n\n")
+            f.write("int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {\n    return 0;\n}\n")
 
         with open("fs/Makefile", "r") as f:
             fs_mk = f.read()
@@ -137,10 +110,9 @@ int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct us
 
         print("[-] Injecting custom Makefile for KernelSU-KoWSU...")
         with open("drivers/kernelsu/Makefile", "w") as f:
-            f.write("""ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-_ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-obj-y += $(_ksu_c_files:.c=.o)
-""")
+            f.write("ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux\n")
+            f.write("_ksu_c_files := $(shell cd $(src) && find . -name \"*.c\" -not -path \"./.*\" -not -path \"*/tools/*\")\n")
+            f.write("obj-y += $(_ksu_c_files:.c=.o)\n")
 
         print("[-] Fixing SELinux files...")
         rules_path = "drivers/kernelsu/selinux/rules.c"
@@ -169,7 +141,8 @@ obj-y += $(_ksu_c_files:.c=.o)
         with open("drivers/Makefile", "r") as f: drv_mk = f.read()
         if 'obj-y += kernelsu/' not in drv_mk:
             with open("drivers/Makefile", "a") as f: f.write('\nobj-y += kernelsu/\n')
-        '
+        EOF
+        python3 setup_kernel.py
 
     - name: Install build dependencies
       run: |
