@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Universal Kernel 4.19 Compatibility Patcher (No KPM, No SuSFS)
+    - name: Integrate YukiSU & Universal Kernel 4.19 Built-in & Compatibility Patcher (No KPM, No SuSFS)
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -19,12 +19,6 @@ jobs:
 
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
-
-        echo "[-] Creating clean empty stubs to satisfy Kernel 4.19 structure..."
-        mkdir -p YukiSU/kernel/extension
-        echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
-        mkdir -p include/linux
-        touch include/linux/seccomp_types.h
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
         if [ -d "YukiSU/kernel" ]; then
@@ -42,62 +36,60 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and running Universal Python 4.19 compatibility patcher..."
+        echo "[-] Creating and running Universal Built-in 4.19 Patcher & Compat Stubs..."
         python3 -c '
-        import os, re, textwrap
-        script = textwrap.dedent("""
         import os, re
-        for root, dirs, files in os.walk(".", followlinks=True):
-            if ".git" in root or "out" in root or "toolchain" in root or "AnyKernel3" in root:
-                continue
+
+        # 1. Force all Makefiles in YukiSU to obj-y (Built-in)
+        for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
-                path = os.path.join(root, file)
-                if file == "selinux_hide.c":
-                    try:
-                        open(path, "w", encoding="utf-8").write("/* [Compat-4.19] SELinux Hide disabled safe stub */\\nvoid ksu_selinux_hide_dummy(void) {}\\n")
-                    except: pass
-                    continue
-                if file == "file_wrapper.c":
-                    try:
-                        open(path, "w", encoding="utf-8").write("/* [Compat-4.19] Safe stub for file_wrapper.c */\\n#include <linux/fs.h>\\n#include <linux/file.h>\\n#include <linux/slab.h>\\n")
-                    except: pass
-                    continue
-                if file == "sepolicy.c":
-                    try:
-                        open(path, "w", encoding="utf-8").write("/* [Compat-4.19] Safe stub for sepolicy.c */\\n#include <linux/types.h>\\n#include <linux/kernel.h>\\n#include <linux/init.h>\\nint ksu_sec_policy_init(void) { return 0; }\\nvoid *ksu_dup_sepolicy(void *old) { return NULL; }\\nbool ksu_is_unsupported_sepolicy(void) { return false; }\\nint ksu_allow(char *s, char *t, char *c, char *p) { return 0; }\\n")
-                    except: pass
-                    continue
-                if file == "rules.c":
-                    try:
-                        open(path, "w", encoding="utf-8").write("/* [Compat-4.19] Safe stub for rules.c */\\n#include <linux/types.h>\\n#include <linux/kernel.h>\\nint ksu_selinux_init(void) { return 0; }\\nvoid ksu_selinux_exit(void) {}\\n")
-                    except: pass
-                    continue
-                if file.endswith((".c", ".h")):
+                if file == "Makefile" or file.endswith(".mk"):
+                    path = os.path.join(root, file)
                     try:
                         content = open(path, "r", encoding="utf-8", errors="ignore").read()
-                        orig = content
-                        content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
-                        content = re.sub(r"#include\\s*<\\s*linux/minmax\\.h\\s*>", "#include <linux/kernel.h>", content)
-                        content = re.sub(r"MODULE_IMPORT_NS\\s*\\([^)]*\\)\\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
-                        content = re.sub(r"task_work_add\\s*\\(([^,]+),\\s*([^,]+),\\s*TWA_[A-Z_]+\\s*\\)", r"task_work_add(\\1, \\2, true)", content)
-                        lines = [l if "seccomp.filter_count" not in l else "    // [Compat-4.19] seccomp.filter_count omitted" for l in content.splitlines()]
-                        content = "\\n".join(lines) + "\\n"
-                        content = re.sub(r"#include\\s+<linux/pgtable\\.h>", "#include <asm/pgtable.h>", content)
-                        content = re.sub(r"\\.handle_inode_event\\s*=", ".handle_event =", content)
-                        content = re.sub(r"\\bforce_sig\\s*\\(\\s*([A-Z_]+)\\s*\\)", r"force_sig(\\1, current)", content)
-                        content = re.sub(r"#include\\s+<uapi/linux/mount\\.h>", "#include <linux/mount.h>", content)
-                        content = re.sub(r"\\baccess_ok\\s*\\(\\s*([^,]+),\\s*([^)]+)\\s*\\)", r"access_ok(VERIFY_READ, \\1, \\2)", content)
-                        if content != orig:
-                            open(path, "w", encoding="utf-8").write(content)
-                    except Exception as e:
+                        new_content = content.replace("obj-m", "obj-y")
+                        new_content = re.sub(r"obj-\$\(CONFIG_KSU\)", "obj-y", new_content)
+                        if new_content != content:
+                            open(path, "w", encoding="utf-8").write(new_content)
+                    except:
                         pass
-        """)
-        open("patch.py", "w").write(script)
-        '
-        python3 patch.py
-        rm -f patch.py
+
+        # 2. Create comprehensive compatibility stubs file compat_419.c
+        compat_code = """/* [Compat-4.19] Comprehensive Kernel 4.19 Built-in Compatibility Stubs */
+        #include <linux/types.h>
+        #include <linux/kernel.h>
+        #include <linux/init.h>
+
+        int apply_kernelsu_rules(void) { return 0; }
+        int ksu_uts_view_init(void) { return 0; }
+        void ksu_uts_view_exit(void) {}
+        void ksu_uts_view_boot_requested(void) {}
+        int ksu_selinux_hide_init(void) { return 0; }
+        void ksu_selinux_hide_exit(void) {}
+        int ksu_file_wrapper_init(void) { return 0; }
+        int ksu_sec_policy_init(void) { return 0; }
+        void *ksu_dup_sepolicy(void *old) { return NULL; }
+        bool ksu_is_unsupported_sepolicy(void) { return false; }
+        int ksu_allow(char *s, char *t, char *c, char *p) { return 0; }
+        void ksu_selinux_hide_dummy(void) {}
+        """
         
-        echo "[+] YukiSU integrated and universally patched for Kernel 4.19!"
+        target_dir = "YukiSU/kernel" if os.path.isdir("YukiSU/kernel") else "YukiSU"
+        os.makedirs(target_dir, exist_ok=True)
+        open(os.path.join(target_dir, "compat_419.c"), "w", encoding="utf-8").write(compat_code)
+
+        # 3. Add compat_419.o to Makefiles
+        for root, dirs, files in os.walk("YukiSU", followlinks=True):
+            for file in files:
+                if file == "Makefile":
+                    path = os.path.join(root, file)
+                    content = open(path, "r", encoding="utf-8", errors="ignore").read()
+                    if "compat_419.o" not in content:
+                        content += "\nobj-y += compat_419.o\n"
+                        open(path, "w", encoding="utf-8").write(content)
+        '
+        
+        echo "[+] YukiSU successfully converted to Built-in and patched for Kernel 4.19!"
 
     - name: Install build dependencies
       run: |
