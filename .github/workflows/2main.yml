@@ -24,86 +24,65 @@ jobs:
         mkdir -p YukiSU/kernel/extension
         echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (Safe complete replacement of file_wrapper.c, seccomp, Selinux Hide stub)..."
-        python3 -c '
-        import os, re
-        
+        echo "[-] Writing Python compatibility patcher script safely..."
+        cat << 'EOF' > patch.py
+        import os
+        import re
+
         for root, dirs, files in os.walk("YukiSU"):
             for file in files:
                 path = os.path.join(root, file)
                 
-                # 1. Turn selinux_hide.c into a clean safe stub
                 if file == "selinux_hide.c":
                     with open(path, "w", encoding="utf-8") as f:
                         f.write("/* [Compat-4.19] SELinux Hide disabled safe stub */\nvoid ksu_selinux_hide_dummy(void) {}\n")
                     print(f"Stubbed selinux_hide.c successfully: {path}")
                     continue
 
-                # 2. Provide a safe 4.19-compatible stub for file_wrapper.c to eliminate all iopoll/remap errors completely
                 if file == "file_wrapper.c":
                     with open(path, "w", encoding="utf-8") as f:
-                        f.write("""/* [Compat-4.19] Safe stub for file_wrapper.c */
-#include <linux/fs.h>
-#include <linux/file.h>
-#include <linux/slab.h>
-
-// Safe compatibility stubs for Kernel 4.19
-""")
+                        f.write("/* [Compat-4.19] Safe stub for file_wrapper.c */\n#include <linux/fs.h>\n#include <linux/file.h>\n#include <linux/slab.h>\n")
                     print(f"Replaced file_wrapper.c with clean 4.19-compatible safe stub: {path}")
                     continue
 
                 if file.endswith((".c", ".h", "Kconfig", "Makefile")):
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
 
-                    # Fix seccomp_types.h inclusion for 4.19
-                    content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
+                        content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
+                        new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
+                        new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", new_content)
 
-                    # MODULE_IMPORT_NS
-                    new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
+                        lines = new_content.splitlines()
+                        new_lines = []
+                        seccomp_modified = False
+                        for line in lines:
+                            if "seccomp.filter_count" in line:
+                                new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
+                                seccomp_modified = True
+                            else:
+                                new_lines.append(line)
+                        if seccomp_modified:
+                            new_content = "\n".join(new_lines) + "\n"
 
-                    # task_work_add
-                    content2 = new_content
-                    new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", content2)
+                        new_content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", new_content)
+                        new_content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", new_content)
+                        new_content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", new_content)
+                        new_content = re.sub(r"#include\s+<uapi/linux/mount\.h>", "#include <linux/mount.h>", new_content)
+                        new_content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", new_content)
 
-                    # seccomp.filter_count
-                    lines = new_content.splitlines()
-                    new_lines = []
-                    seccomp_modified = False
-                    for line in lines:
-                        if "seccomp.filter_count" in line:
-                            new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
-                            seccomp_modified = True
-                        else:
-                            new_lines.append(line)
-                    if seccomp_modified:
-                        new_content = "\n".join(new_lines) + "\n"
+                        if new_content != content:
+                            with open(path, "w", encoding="utf-8") as f:
+                                f.write(new_content)
+                            print(f"Patched: {path}")
+                    except Exception as e:
+                        print(f"Error processing {path}: {e}")
+        EOF
 
-                    # pgtable.h
-                    content3 = new_content
-                    new_content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", content3)
-
-                    # handle_inode_event
-                    content4 = new_content
-                    new_content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", content4)
-
-                    # force_sig
-                    content5 = new_content
-                    new_content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", content5)
-
-                    # uapi/linux/mount.h
-                    content6 = new_content
-                    new_content = re.sub(r"#include\s+<uapi/linux/mount\.h>", "#include <linux/mount.h>", content6)
-
-                    # access_ok
-                    content7 = new_content
-                    new_content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", content7)
-
-                    if new_content != content:
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.write(new_content)
-                        print(f"Patched: {path}")
-        '
+        echo "[-] Running Python patcher script..."
+        python3 patch.py
+        rm patch.py
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
         if [ -d "YukiSU/kernel" ]; then
