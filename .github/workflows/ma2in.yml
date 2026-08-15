@@ -211,7 +211,7 @@ jobs:
     - name: Inject KoWSU Makefile
       run: |
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/selinux -I$(srctree)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(srctree) -I$(src) -I$(src)/selinux -I$(srctree)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(srctree)/security/selinux/ss -I$(objtree)/security/selinux -I$(objtree)/security/selinux/ss
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
@@ -220,13 +220,29 @@ jobs:
       run: |
         python3 - << 'EOF'
         import os, re, textwrap
+
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    p = os.path.join(root, file)
+                    with open(p, "r") as f:
+                        c = f.read()
+                    if "security/selinux/" in c:
+                        c = c.replace("#include <security/selinux/ss/policydb.h>", "#include <ss/policydb.h>")
+                        c = c.replace('#include "security/selinux/ss/policydb.h"', '#include "ss/policydb.h"')
+                        c = c.replace("#include <security/selinux/", "#include <")
+                        c = c.replace('#include "security/selinux/', '#include "')
+                        with open(p, "w") as f:
+                            f.write(c)
+
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "r") as f: content = f.read()
             
             compat_defs = textwrap.dedent("""
-            #include <security/selinux/ss/policydb.h>
-            #include <security/selinux/security.h>
+            #include <ss/policydb.h>
+            #include <security.h>
+            #include <linux/mutex.h>
             static DEFINE_MUTEX(ksu_compat_policydb_mutex);
             #ifndef policydb_mutex
             #define policydb_mutex ksu_compat_policydb_mutex
@@ -310,7 +326,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/include -I$(pwd)/include/uapi -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd) -I$(pwd)/include -I$(pwd)/include/uapi -I$(pwd)/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
