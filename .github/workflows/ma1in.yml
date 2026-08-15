@@ -211,7 +211,19 @@ jobs:
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
-        # 3. Fix kpm.c access_ok macro mismatch
+        # 3. Fix dispatch.c tasklist_lock & init_task missing in Kernel 4.19
+        dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
+        if os.path.exists(dispatch_path):
+            with open(dispatch_path, "r", errors="ignore") as f:
+                dc = f.read()
+            dc = dc.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
+            dc = dc.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
+            dc = dc.replace("task_pgrp(&init_task)", "task_pgrp(&init_task_union.task)")
+            dc = dc.replace("task_session(&init_task)", "task_session(&init_task_union.task)")
+            with open(dispatch_path, "w") as f:
+                f.write(dc)
+
+        # 4. Fix kpm.c access_ok macro mismatch
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
             with open(kpm_path, "r", errors="ignore") as fh: content = fh.read()
@@ -228,7 +240,7 @@ jobs:
             content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
 
-        # 4. Safely wrap file_wrapper.c functions using Kernel Version Guards
+        # 5. Safely wrap file_wrapper.c functions using Kernel Version Guards
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
             with open(fw_path, "r", errors="ignore") as fh:
@@ -240,7 +252,7 @@ jobs:
             with open(fw_path, "w") as fh:
                 fh.write(guarded_fw)
 
-        # 5. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
+        # 6. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
         seccomp_path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(seccomp_path):
             with open(seccomp_path, "r", errors="ignore") as f:
@@ -260,7 +272,7 @@ jobs:
                 with open(seccomp_path, "w") as f:
                     f.write(seccomp_content)
 
-        # 6. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
+        # 7. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
         pkg_path = "drivers/kernelsu/manager/pkg_observer.c"
         if os.path.exists(pkg_path):
             with open(pkg_path, "w") as f:
@@ -279,7 +291,7 @@ jobs:
         }
         """)
 
-        # 7. Ensure allowlist.c includes compatibility header for task_work
+        # 8. Ensure allowlist.c includes compatibility header for task_work
         allowlist_path = "drivers/kernelsu/policy/allowlist.c"
         if os.path.exists(allowlist_path):
             with open(allowlist_path, "r", errors="ignore") as f:
@@ -289,7 +301,7 @@ jobs:
                 with open(allowlist_path, "w") as f:
                     f.write(ac)
 
-        # 8. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
+        # 9. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
         app_profile_path = "drivers/kernelsu/policy/app_profile.c"
         if os.path.exists(app_profile_path):
             with open(app_profile_path, "r", errors="ignore") as f:
@@ -298,7 +310,7 @@ jobs:
             with open(app_profile_path, "w") as f:
                 f.write(ap_content)
 
-        # 9. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 10. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
