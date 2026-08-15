@@ -26,7 +26,6 @@ jobs:
         python3 -c '
         import os, shutil
 
-        # البحث التلقائي عن مسار الكود داخل مستودع SukiSU-Ultra
         ksu_src = None
         for root, dirs, files in os.walk("SukiSU-Ultra"):
             if "Kconfig" in files:
@@ -38,12 +37,10 @@ jobs:
 
         print(f"[+] Found KSU source at: {ksu_src}")
 
-        # نسخ الملفات إلى drivers/kernelsu
         if os.path.exists("drivers/kernelsu"):
             shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
-        # إنشاء ملف التوافقية للنواة 4.19
         compat_h_path = "drivers/kernelsu/ksu_compat.h"
         with open(compat_h_path, "w") as f:
             f.write("""#ifndef KSU_COMPAT_H
@@ -58,7 +55,6 @@ jobs:
         #endif
         """)
 
-        # تعديل أو إنشاء الـ Makefile الخاص بـ KSU لإجبار تضمين ملف التوافقية
         makefile_path = "drivers/kernelsu/Makefile"
         if os.path.exists(makefile_path):
             with open(makefile_path, "r") as f:
@@ -92,6 +88,7 @@ jobs:
         GCC_PATH=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
+        export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
 
         echo "[-] Configuring Kernel..."
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
@@ -113,7 +110,7 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         echo "[-] Building Kernel..."
-        make -C $(pwd) O=$(pwd)/out -j$(nproc)
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" -j$(nproc)
 
     - name: Package Output
       run: |
