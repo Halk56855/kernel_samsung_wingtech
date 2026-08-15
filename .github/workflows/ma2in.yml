@@ -11,13 +11,38 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KoWSU & Setup
+    - name: Clean Integration of KoWSU & Automated 4.19 Patching
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KernelSU-KoWSU .git/modules/KernelSU-KoWSU fs/ksu_compat.c
 
         echo "[-] Cloning KernelSU-KoWSU repository..."
         git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU
+
+        echo "[-] Automatically patching MODULE_IMPORT_NS for Kernel 4.19 compatibility..."
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for f in files:
+                if f.endswith(".c") or f.endswith(".h"):
+                    path = os.path.join(root, f)
+                    try:
+                        with open(path, "r", errors="ignore") as fh:
+                            content = fh.read()
+                        if "MODULE_IMPORT_NS" in content:
+                            print(f"[+] Patching MODULE_IMPORT_NS in: {path}")
+                            lines = content.splitlines()
+                            new_lines = []
+                            for line in lines:
+                                if "MODULE_IMPORT_NS" in line:
+                                    new_lines.append("/* " + line + " */ // Patched for Kernel 4.19")
+                                else:
+                                    new_lines.append(line)
+                            with open(path, "w") as fh:
+                                fh.write("\n".join(new_lines) + "\n")
+                    except Exception as e:
+                        print(f"[-] Skipped {path}: {e}")
+        '
 
         echo "[-] Linking KernelSU-KoWSU folder to drivers/kernelsu..."
         python3 -c '
