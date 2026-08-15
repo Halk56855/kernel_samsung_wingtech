@@ -123,24 +123,6 @@ jobs:
         #endif
         EOF
 
-        mkdir -p drivers/kernelsu/selinux
-        cat << 'EOF' > drivers/kernelsu/selinux/selinux_defs.h
-        #ifndef _KSU_SELINUX_DEFS_H
-        #define _KSU_SELINUX_DEFS_H
-        #include <linux/types.h>
-        #include <linux/sched.h>
-        #ifndef fallthrough
-        #define fallthrough do {} while (0)
-        #endif
-        #ifndef TWA_RESUME
-        #define TWA_RESUME 1
-        #endif
-        #ifndef TWA_NONE
-        #define TWA_NONE 0
-        #endif
-        #endif
-        EOF
-
         echo "[-] Injecting custom Makefile for SukiSU-Ultra with comprehensive include flags..."
         cat << 'EOF' > drivers/kernelsu/Makefile
         ccflags-y += -w -I$(src) \
@@ -155,7 +137,8 @@ jobs:
                      -I$(src)/include/uapi \
                      -I$(srctree)/security/selinux \
                      -I$(srctree)/security/selinux/include \
-                     -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)"
+                     -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)" \
+                     -DMODULE_IMPORT_NS=__ignore_ns
 
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
@@ -165,7 +148,7 @@ jobs:
         python3 -c '
         import os, re, glob
 
-        # 1. Distribute selinux_defs.h into ALL subdirectories of drivers/kernelsu so any #include will find it instantly
+        # 1. Distribute robust selinux_defs.h into ALL subdirectories of drivers/kernelsu
         selinux_defs_content = """#ifndef _KSU_SELINUX_DEFS_H
         #define _KSU_SELINUX_DEFS_H
         #include <linux/types.h>
@@ -178,6 +161,9 @@ jobs:
         #endif
         #ifndef TWA_NONE
         #define TWA_NONE 0
+        #endif
+        #ifndef MODULE_IMPORT_NS
+        #define MODULE_IMPORT_NS(ns)
         #endif
         #endif
         """
