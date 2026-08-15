@@ -219,19 +219,19 @@ jobs:
     - name: Fix SELinux Rules and State for Kernel 4.19
       run: |
         python3 - << 'EOF'
-        import os, re
+        import os, re, textwrap
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "r") as f: content = f.read()
             
-            compat_defs = """
-#include <security/selinux/ss/policydb.h>
-#include <security/selinux/security.h>
-static DEFINE_MUTEX(ksu_compat_policydb_mutex);
-#ifndef policydb_mutex
-#define policydb_mutex ksu_compat_policydb_mutex
-#endif
-"""
+            compat_defs = textwrap.dedent("""
+            #include <security/selinux/ss/policydb.h>
+            #include <security/selinux/security.h>
+            static DEFINE_MUTEX(ksu_compat_policydb_mutex);
+            #ifndef policydb_mutex
+            #define policydb_mutex ksu_compat_policydb_mutex
+            #endif
+            """)
             if "ksu_compat_policydb_mutex" not in content:
                 content = compat_defs + content
 
