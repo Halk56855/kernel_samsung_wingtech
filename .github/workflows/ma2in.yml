@@ -54,6 +54,22 @@ jobs:
         EOF
         done
 
+    - name: Fix seccomp_cache.c for Kernel 4.19
+      run: |
+        find KernelSU-KoWSU -name "seccomp_cache.c" -type f | while read sc; do
+          python3 -c '
+          import sys
+          path = sys.argv[1]
+          with open(path, "r") as f:
+              content = f.read()
+          if "SECCOMP_ARCH_NATIVE_NR" in content and "ifndef SECCOMP_ARCH_NATIVE_NR" not in content:
+              patch = """/* Define fallback for SECCOMP_ARCH_NATIVE_NR on Linux 4.19 */\n#ifndef SECCOMP_ARCH_NATIVE_NR\n#include <asm/unistd.h>\n#ifdef __NR_syscalls\n#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls\n#else\n#define SECCOMP_ARCH_NATIVE_NR 512\n#endif\n#endif\n\n"""
+              with open(path, "w") as f:
+                  f.write(patch + content)
+              print("Patched " + path)
+          ' "$sc"
+        done
+
     - name: Create pgtable.h compatibility header
       run: |
         mkdir -p include/linux
