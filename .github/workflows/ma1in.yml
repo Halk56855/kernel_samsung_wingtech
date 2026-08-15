@@ -76,6 +76,22 @@ jobs:
 
         echo "[-] Creating all missing headers for Kernel 4.19 & SELinux compatibility..."
         mkdir -p drivers/kernelsu/include/linux
+        cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
+        #ifndef _KSU_COMPAT_MINMAX_H
+        #define _KSU_COMPAT_MINMAX_H
+        #include <linux/kernel.h>
+        #ifndef min
+        #define min(x, y) (((x) < (y)) ? (x) : (y))
+        #endif
+        #ifndef max
+        #define max(x, y) (((x) > (y)) ? (x) : (y))
+        #endif
+        #ifndef clamp
+        #define clamp(val, lo, hi) min(max(val, lo), hi)
+        #endif
+        #endif
+        EOF
+
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_COMPAT_PGTABLE_H
         #define _KSU_COMPAT_PGTABLE_H
