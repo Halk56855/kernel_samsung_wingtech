@@ -16,8 +16,30 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
 
-    - name: Patch and Build Kernel
+    - name: Patch, Clean Clang Flags & Build Kernel
       run: |
+        echo "[-] Cleaning unknown/incompatible Clang warning flags across Makefiles..."
+        python3 -c '
+        import os
+        for root, dirs, files in os.walk("."):
+            if "out" in root or ".git" in root:
+                continue
+            for file in files:
+                if file.endswith(("Makefile", "Kbuild")) or file == "Makefile":
+                    fp = os.path.join(root, file)
+                    try:
+                        with open(fp, "r", errors="ignore") as f:
+                            content = f.read()
+                        if "-Wno-default-const-init" in content or "default-const-init" in content:
+                            content = content.replace("-Wno-default-const-init-var-unsafe", "")
+                            content = content.replace("-Wno-default-const-init-field-unsafe", "")
+                            with open(fp, "w") as f:
+                                f.write(content)
+                            print(f"[+] Cleaned flags in {fp}")
+                    except Exception as e:
+                        pass
+        '
+
         echo "[-] Cloning SukiSU-Ultra..."
         rm -rf drivers/kernelsu SukiSU-Ultra
         git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
@@ -88,7 +110,7 @@ jobs:
         GCC_PATH=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
-        export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
+        export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security -Wno-error=unknown-warning-option"
 
         echo "[-] Configuring Kernel..."
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
