@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Direct Inline Stubs Injection & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Appending safe stubs at file ends & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -44,35 +44,31 @@ jobs:
         if not os.path.exists(kernelsu_dir) and os.path.exists('KernelSU/kernel'):
             kernelsu_dir = 'KernelSU/kernel'
 
-        # 1. Inject inline stubs directly into supercalls.c to resolve missing symbols permanently
+        # 1. Append safe stubs at the end of supercalls.c to resolve missing symbols with full type awareness
         supercalls_path = os.path.join(kernelsu_dir, 'supercalls.c')
         if os.path.exists(supercalls_path):
             with open(supercalls_path, 'r') as f:
                 content = f.read()
-            stubs = """
-        /* AI Auto-generated inline stubs for Kernel 4.19 missing symbols */
-        #include <linux/fs.h>
-        int __attribute__((weak)) handle_sepolicy(unsigned long arg) { return -1; }
-        int __attribute__((weak)) ksu_file_sid(struct file *file, u32 *sid) { if (sid) *sid = 0; return -1; }
-        int __attribute__((weak)) ksu_install_file_wrapper(void) { return -1; }
-        """
             if 'handle_sepolicy' not in content:
-                content = stubs + content
+                content += """
+        /* AI Auto-generated safe stubs for missing symbols in Kernel 4.19 */
+        int handle_sepolicy(unsigned long arg) { return -1; }
+        int ksu_file_sid(struct file *file, u32 *sid) { if (sid) *sid = 0; return -1; }
+        int ksu_install_file_wrapper(void) { return -1; }
+        """
                 with open(supercalls_path, 'w') as f:
                     f.write(content)
 
-        # 2. Inject inline stub for path_mount directly into su_mount_ns.c
+        # 2. Append safe stub at the end of su_mount_ns.c for path_mount
         su_mount_path = os.path.join(kernelsu_dir, 'su_mount_ns.c')
         if os.path.exists(su_mount_path):
             with open(su_mount_path, 'r') as f:
                 content = f.read()
-            mount_stub = """
-        /* AI Auto-generated inline stub for Kernel 4.19 missing path_mount */
-        #include <linux/path.h>
-        int __attribute__((weak)) path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) { return -1; }
-        """
             if 'path_mount' not in content:
-                content = mount_stub + content
+                content += """
+        /* AI Auto-generated safe stub for missing path_mount in Kernel 4.19 */
+        int path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) { return -1; }
+        """
                 with open(su_mount_path, 'w') as f:
                     f.write(content)
 
@@ -233,7 +229,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, inline stubs injected, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, safe stubs appended, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
