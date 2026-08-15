@@ -216,7 +216,7 @@ jobs:
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-    - name: Fix SELinux and wire drivers
+    - name: Fix SELinux Rules and State for Kernel 4.19
       run: |
         python3 - << 'EOF'
         import os, re
@@ -224,11 +224,14 @@ jobs:
         if os.path.exists(rules_path):
             with open(rules_path, "r") as f: content = f.read()
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
+            content = content.replace("selinux_state.policy", "policydb")
+            content = content.replace("selinux_state.policy_mutex", "selinux_state.lock")
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
             else:
                 content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
             with open(rules_path, "w") as f: f.write(content)
+            print("Patched rules.c for Kernel 4.19 SELinux structures")
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
