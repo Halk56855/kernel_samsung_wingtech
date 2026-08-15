@@ -74,7 +74,7 @@ jobs:
           echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        echo "[-] Creating all missing headers for Kernel 4.19 & task_work compatibility..."
+        echo "[-] Creating necessary compatibility headers for Kernel 4.19..."
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/minmax.h
         #ifndef _KSU_COMPAT_MINMAX_H
@@ -123,40 +123,21 @@ jobs:
         #endif
         EOF
 
-        cat << 'EOF' > drivers/kernelsu/include/linux/task_work.h
-        #ifndef _KSU_COMPAT_TASK_WORK_H
-        #define _KSU_COMPAT_TASK_WORK_H
-        #include <linux/version.h>
-        #ifndef TWA_RESUME
-        #define TWA_RESUME 1
-        #endif
-        #ifndef TWA_NONE
-        #define TWA_NONE 0
-        #endif
-        #ifndef fallthrough
-        #define fallthrough do {} while (0)
-        #endif
-        #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
-        struct task_struct;
-        struct callback_head;
-        extern int task_work_add(struct task_struct *task, struct callback_head *twork);
-        #define task_work_add(task, twork, notify) task_work_add(task, twork)
-        #endif
-        #endif
-        EOF
-
         mkdir -p drivers/kernelsu/selinux
         cat << 'EOF' > drivers/kernelsu/selinux/selinux_defs.h
         #ifndef _KSU_SELINUX_DEFS_H
         #define _KSU_SELINUX_DEFS_H
         #include <linux/types.h>
         #include <linux/sched.h>
+        #ifndef fallthrough
+        #define fallthrough do {} while (0)
+        #endif
         #endif
         EOF
 
-        echo "[-] Injecting custom Makefile for SukiSU-Ultra..."
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra with TWA definitions..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux -DTWA_RESUME=1 -DTWA_NONE=0
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
@@ -303,17 +284,7 @@ jobs:
         }
         """)
 
-        # 8. Ensure allowlist.c includes compatibility header for task_work
-        allowlist_path = "drivers/kernelsu/policy/allowlist.c"
-        if os.path.exists(allowlist_path):
-            with open(allowlist_path, "r", errors="ignore") as f:
-                ac = f.read()
-            if "#include <linux/task_work.h>" in ac and "#include \"../include/linux/task_work.h\"" not in ac:
-                ac = ac.replace("#include <linux/task_work.h>", "#include <linux/task_work.h>\n#include \"../include/linux/task_work.h\"")
-                with open(allowlist_path, "w") as f:
-                    f.write(ac)
-
-        # 9. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
+        # 8. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
         app_profile_path = "drivers/kernelsu/policy/app_profile.c"
         if os.path.exists(app_profile_path):
             with open(app_profile_path, "r", errors="ignore") as f:
@@ -322,7 +293,7 @@ jobs:
             with open(app_profile_path, "w") as f:
                 f.write(ap_content)
 
-        # 10. Neutralize MODULE_IMPORT_NS for Kernel 4.19
+        # 9. Neutralize MODULE_IMPORT_NS for Kernel 4.19
         for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
             with open(path, "r", errors="ignore") as fh:
                 c_content = fh.read()
