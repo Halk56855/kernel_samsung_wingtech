@@ -54,7 +54,7 @@ jobs:
         EOF
         done
 
-    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist)
+    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile)
       run: |
         python3 - << 'EOF'
         import os
@@ -85,6 +85,14 @@ jobs:
                         with open(path, "w") as f:
                             f.write(patch + content)
                         print("Patched allowlist.c for TWA_RESUME")
+                elif file == "app_profile.c":
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "filter_count" in content:
+                        content = content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); */")
+                        with open(path, "w") as f:
+                            f.write(content)
+                        print("Patched app_profile.c for filter_count")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
