@@ -40,7 +40,7 @@ jobs:
         python3 -c '
         import os, re
 
-        # 1. Force all Makefiles in YukiSU to obj-y (Built-in)
+        # 1. Force all Makefiles in YukiSU to obj-y (Built-in) and strip module flags
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file == "Makefile" or file.endswith(".mk"):
@@ -54,7 +54,24 @@ jobs:
                     except:
                         pass
 
-        # 2. Create comprehensive compatibility stubs file compat_419.c
+        # 2. Comprehensive code patching for Kernel 4.19 compatibility (stripping MODULE_IMPORT_NS, etc.)
+        for root, dirs, files in os.walk("YukiSU", followlinks=True):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    path = os.path.join(root, file)
+                    try:
+                        content = open(path, "r", encoding="utf-8", errors="ignore").read()
+                        orig = content
+                        # Remove MODULE_IMPORT_NS completely to fix 4.19 compilation error
+                        content = re.sub(r"MODULE_IMPORT_NS\\s*\\([^)]*\\)\\s*;?", "/* [Compat-4.19] MODULE_IMPORT_NS stripped */", content)
+                        content = re.sub(r"<linux/seccomp_types\\.h>", "<linux/seccomp.h>", content)
+                        content = re.sub(r"#include\\s*<\\s*linux/minmax\\.h\\s*>", "#include <linux/kernel.h>", content)
+                        if content != orig:
+                            open(path, "w", encoding="utf-8").write(content)
+                    except:
+                        pass
+
+        # 3. Create comprehensive compatibility stubs file compat_419.c
         compat_code = """/* [Compat-4.19] Comprehensive Kernel 4.19 Built-in Compatibility Stubs */
         #include <linux/types.h>
         #include <linux/kernel.h>
@@ -78,7 +95,7 @@ jobs:
         os.makedirs(target_dir, exist_ok=True)
         open(os.path.join(target_dir, "compat_419.c"), "w", encoding="utf-8").write(compat_code)
 
-        # 3. Add compat_419.o to Makefiles
+        # 4. Add compat_419.o to Makefiles
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file == "Makefile":
@@ -89,7 +106,7 @@ jobs:
                         open(path, "w", encoding="utf-8").write(content)
         '
         
-        echo "[+] YukiSU successfully converted to Built-in and patched for Kernel 4.19!"
+        echo "[+] YukiSU successfully prepared and patched for Kernel 4.19!"
 
     - name: Install build dependencies
       run: |
