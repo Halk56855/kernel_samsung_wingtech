@@ -20,9 +20,11 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Creating clean empty stub for uts_view.c to satisfy Makefile..."
+        echo "[-] Creating clean empty stubs to satisfy Kernel 4.19 structure..."
         mkdir -p YukiSU/kernel/extension
         echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
+        mkdir -p include/linux
+        touch include/linux/seccomp_types.h
 
         echo "[-] Writing Python compatibility patcher script safely..."
         cat << 'EOF' > patch.py
@@ -50,9 +52,9 @@ jobs:
                         with open(path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
 
-                        # 4.19 header replacements
+                        # 4.19 header replacements using robust regex
                         content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
-                        content = content.replace("<linux/minmax.h>", "<linux/kernel.h>")
+                        content = re.sub(r'#include\s*<\s*linux/minmax\.h\s*>', '#include <linux/kernel.h>', content)
 
                         new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
                         new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", new_content)
