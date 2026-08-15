@@ -11,9 +11,9 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of SukiSU-Ultra & AI Smart Compatibility Patches
+    - name: Clean Integration & AI Automated Patching for SukiSU-Ultra
       run: |
-        echo "[-] Cleaning up old remnants..."
+        echo "[-] Cleaning old leftovers..."
         rm -rf drivers/kernelsu SukiSU-Ultra .git/modules/SukiSU-Ultra fs/ksu_compat.c
 
         echo "[-] Cloning SukiSU-Ultra repository (dev branch)..."
@@ -45,7 +45,7 @@ jobs:
         print("[+] Symlink drivers/kernelsu created successfully")
         '
 
-        echo "[-] Injecting compatibility layer into fs/ for LLD perfection..."
+        echo "[-] Injecting clean compatibility layer into fs/..."
         cat << 'EOF' > fs/ksu_compat.c
         #include <linux/module.h>
         #include <linux/types.h>
@@ -74,7 +74,7 @@ jobs:
           echo 'obj-y += ksu_compat.o' >> fs/Makefile
         fi
 
-        echo "[-] Creating compatibility headers for Kernel 4.19..."
+        echo "[-] Creating all missing headers for Kernel 4.19 & SELinux compatibility..."
         mkdir -p drivers/kernelsu/include/linux
         cat << 'EOF' > drivers/kernelsu/include/linux/pgtable.h
         #ifndef _KSU_COMPAT_PGTABLE_H
@@ -120,24 +120,24 @@ jobs:
         #endif
         EOF
 
-        cat << 'EOF' > drivers/kernelsu/include/linux/seccomp.h
-        #ifndef _KSU_COMPAT_SECCOMP_H
-        #define _KSU_COMPAT_SECCOMP_H
-        #include_next <linux/seccomp.h>
-        #ifndef filter_count
-        /* Stub or safe fallback macro for older kernels lacking filter_count in struct seccomp */
-        #endif
+        # Create selinux_defs.h inside selinux/ directory directly
+        mkdir -p drivers/kernelsu/selinux
+        cat << 'EOF' > drivers/kernelsu/selinux/selinux_defs.h
+        #ifndef _KSU_SELINUX_DEFS_H
+        #define _KSU_SELINUX_DEFS_H
+        #include <linux/types.h>
+        #include <linux/sched.h>
         #endif
         EOF
 
-        echo "[-] Injecting custom Makefile for SukiSU-Ultra with include paths..."
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Applying Full AI Automatic Patches for Kernel 4.19 & SukiSU-Ultra..."
+        echo "[-] Applying Full AI Automatic Patches for Kernel 4.19..."
         python3 -c '
         import os, re, glob
 
@@ -169,8 +169,6 @@ jobs:
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
             with open(selinux_path, "r", errors="ignore") as fh: content = fh.read()
-            if "#include \"selinux_defs.h\"" not in content:
-                content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
@@ -257,7 +255,6 @@ jobs:
         if os.path.exists(app_profile_path):
             with open(app_profile_path, "r", errors="ignore") as f:
                 ap_content = f.read()
-            # Replace filter_count atomic set/check with a dummy/noop or conditional block for 4.19
             ap_content = ap_content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* filter_count not present in kernel 4.19 seccomp struct */")
             with open(app_profile_path, "w") as f:
                 f.write(ap_content)
