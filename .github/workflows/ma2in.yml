@@ -54,7 +54,7 @@ jobs:
         EOF
         done
 
-    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile)
+    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux)
       run: |
         python3 - << 'EOF'
         import os
@@ -93,6 +93,13 @@ jobs:
                         with open(path, "w") as f:
                             f.write(content)
                         print("Patched app_profile.c for filter_count")
+                elif file == "selinux.c":
+                    with open(path, "r") as f:
+                        content = f.read()
+                    content = content.replace('#include "selinux_defs.h"', '#include "selinux/selinux_defs.h"')
+                    with open(path, "w") as f:
+                        f.write(content)
+                    print("Patched selinux.c include path")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
@@ -204,7 +211,7 @@ jobs:
     - name: Inject KoWSU Makefile
       run: |
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(src)/selinux -I$(srctree)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
@@ -226,8 +233,6 @@ jobs:
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
             with open(selinux_path, "r") as f: content = f.read()
-            if "#include \"selinux_defs.h\"" not in content:
-                content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as f: f.write(content)
         EOF
