@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate YukiSU & Ultimate Kernel 4.19 Compatibility Patcher (No KPM, No SuSFS, No Selinux Hide)
+    - name: Integrate YukiSU & Universal Kernel 4.19 Compatibility Patcher (No KPM, No SuSFS)
       run: |
         echo "[-] Cleaning up old KernelSU/YukiSU remnants..."
         rm -rf drivers/kernelsu
@@ -25,69 +25,6 @@ jobs:
         echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
         mkdir -p include/linux
         touch include/linux/seccomp_types.h
-
-        echo "[-] Writing Python compatibility patcher script safely..."
-        cat << 'EOF' > patch.py
-        import os
-        import re
-
-        for root, dirs, files in os.walk("YukiSU"):
-            for file in files:
-                path = os.path.join(root, file)
-                
-                if file == "selinux_hide.c":
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write("/* [Compat-4.19] SELinux Hide disabled safe stub */\nvoid ksu_selinux_hide_dummy(void) {}\n")
-                    print(f"Stubbed selinux_hide.c successfully: {path}")
-                    continue
-
-                if file == "file_wrapper.c":
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write("/* [Compat-4.19] Safe stub for file_wrapper.c */\n#include <linux/fs.h>\n#include <linux/file.h>\n#include <linux/slab.h>\n")
-                    print(f"Replaced file_wrapper.c with clean 4.19-compatible safe stub: {path}")
-                    continue
-
-                if file.endswith((".c", ".h", "Kconfig", "Makefile")):
-                    try:
-                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                            content = f.read()
-
-                        # 4.19 header replacements using robust regex
-                        content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
-                        content = re.sub(r'#include\s*<\s*linux/minmax\.h\s*>', '#include <linux/kernel.h>', content)
-
-                        new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
-                        new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", new_content)
-
-                        lines = new_content.splitlines()
-                        new_lines = []
-                        seccomp_modified = False
-                        for line in lines:
-                            if "seccomp.filter_count" in line:
-                                new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
-                                seccomp_modified = True
-                            else:
-                                new_lines.append(line)
-                        if seccomp_modified:
-                            new_content = "\n".join(new_lines) + "\n"
-
-                        new_content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", new_content)
-                        new_content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", new_content)
-                        new_content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", new_content)
-                        new_content = re.sub(r"#include\s+<uapi/linux/mount\.h>", "#include <linux/mount.h>", new_content)
-                        new_content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", new_content)
-
-                        if new_content != content:
-                            with open(path, "w", encoding="utf-8") as f:
-                                f.write(new_content)
-                            print(f"Patched: {path}")
-                    except Exception as e:
-                        print(f"Error processing {path}: {e}")
-        EOF
-
-        echo "[-] Running Python patcher script..."
-        python3 patch.py
-        rm patch.py
 
         echo "[-] Establishing correct symbolic link for drivers/kernelsu..."
         if [ -d "YukiSU/kernel" ]; then
@@ -104,8 +41,81 @@ jobs:
         if ! grep -q "kernelsu" drivers/Makefile; then
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
+
+        echo "[-] Writing Universal Python 4.19 compatibility patcher script..."
+        cat << 'EOF' > patch.py
+        import os
+        import re
+
+        for root, dirs, files in os.walk(".", followlinks=True):
+            if ".git" in root or "out" in root or "toolchain" in root or "AnyKernel3" in root:
+                continue
+            for file in files:
+                path = os.path.join(root, file)
+                
+                if file == "selinux_hide.c":
+                    try:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write("/* [Compat-4.19] SELinux Hide disabled safe stub */\nvoid ksu_selinux_hide_dummy(void) {}\n")
+                        print(f"Stubbed selinux_hide.c: {path}")
+                    except Exception:
+                        pass
+                    continue
+
+                if file == "file_wrapper.c":
+                    try:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write("/* [Compat-4.19] Safe stub for file_wrapper.c */\n#include <linux/fs.h>\n#include <linux/file.h>\n#include <linux/slab.h>\n")
+                        print(f"Stubbed file_wrapper.c: {path}")
+                    except Exception:
+                        pass
+                    continue
+
+                if file.endswith((".c", ".h")):
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+
+                        original_content = content
+
+                        # Universal replacements for Kernel 4.19 compatibility
+                        content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
+                        content = re.sub(r'#include\s*<\s*linux/minmax\.h\s*>', '#include <linux/kernel.h>', content)
+                        
+                        content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
+                        content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", content)
+
+                        lines = content.splitlines()
+                        new_lines = []
+                        seccomp_modified = False
+                        for line in lines:
+                            if "seccomp.filter_count" in line:
+                                new_lines.append("    // [Compat-4.19] seccomp.filter_count omitted")
+                                seccomp_modified = True
+                            else:
+                                new_lines.append(line)
+                        if seccomp_modified:
+                            content = "\n".join(new_lines) + "\n"
+
+                        content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", content)
+                        content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", content)
+                        content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", content)
+                        content = re.sub(r"#include\s+<uapi/linux/mount\.h>", "#include <linux/mount.h>", content)
+                        content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", content)
+
+                        if content != original_content:
+                            with open(path, "w", encoding="utf-8") as f:
+                                f.write(content)
+                            print(f"Successfully patched: {path}")
+                    except Exception as e:
+                        print(f"Error processing {path}: {e}")
+        EOF
+
+        echo "[-] Running Universal Python patcher script..."
+        python3 patch.py
+        rm patch.py
         
-        echo "[+] YukiSU integrated and fully patched for Kernel 4.19!"
+        echo "[+] YukiSU integrated and universally patched for Kernel 4.19!"
 
     - name: Install build dependencies
       run: |
