@@ -17,7 +17,7 @@ jobs:
         import os, shutil, re
 
         print("[-] Cleaning up old remnants...")
-        for p in ["drivers/kernelsu", "KernelSU-KoWSU", ".git/modules/KernelSU-KoWSU", "fs/ksu_compat.c"]:
+        for p in ["drivers/kernelsu", "KernelSU-KoWSU", ".git/modules/KernelSU-KoWSU", "fs/ksu_compat.c", "setup_kernel.py"]:
             if os.path.islink(p) or os.path.isfile(p):
                 os.remove(p)
             elif os.path.isdir(p):
@@ -25,6 +25,47 @@ jobs:
 
         print("[-] Cloning KernelSU-KoWSU repository...")
         os.system("git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU")
+
+        print("[-] Overwriting ALL file_wrapper.c inside KernelSU-KoWSU for Kernel 4.19 compatibility...")
+        safe_file_wrapper = """#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/version.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
+
+struct file *ksu_filp_open(const char *filename, int flags, umode_t mode) {
+    return filp_open(filename, flags, mode);
+}
+
+int ksu_filp_close(struct file *file, fl_owner_t id) {
+    return filp_close(file, id);
+}
+
+ssize_t ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {
+    return kernel_read(file, buf, count, pos);
+}
+
+ssize_t ksu_kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos) {
+    return kernel_write(file, buf, count, pos);
+}
+
+bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+    return false;
+}
+
+int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
+    return 0;
+}
+"""
+
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for file in files:
+                if file == "file_wrapper.c":
+                    fw_path = os.path.join(root, file)
+                    print(f"[+] Overwriting {fw_path}")
+                    with open(fw_path, "w") as f:
+                        f.write(safe_file_wrapper)
 
         print("[-] Creating global include/linux/pgtable.h for Kernel 4.19...")
         os.makedirs("include/linux", exist_ok=True)
@@ -35,28 +76,6 @@ jobs:
             f.write("#include <linux/mm.h>\n")
             f.write("#include <linux/highmem.h>\n")
             f.write("#endif\n")
-
-        print("[-] Creating clean file_wrapper.c for Kernel 4.19...")
-        os.makedirs("drivers/kernelsu/infra", exist_ok=True)
-        with open("drivers/kernelsu/infra/file_wrapper.c", "w") as f:
-            f.write("#include <linux/module.h>\n")
-            f.write("#include <linux/kernel.h>\n")
-            f.write("#include <linux/fs.h>\n")
-            f.write("#include <linux/version.h>\n")
-            f.write("#include <linux/uaccess.h>\n")
-            f.write("#include <linux/slab.h>\n\n")
-            f.write("struct file *ksu_filp_open(const char *filename, int flags, umode_t mode) {\n")
-            f.write("    return filp_open(filename, flags, mode);\n}\n\n")
-            f.write("int ksu_filp_close(struct file *file, fl_owner_t id) {\n")
-            f.write("    return filp_close(file, id);\n}\n\n")
-            f.write("ssize_t ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {\n")
-            f.write("    return kernel_read(file, buf, count, pos);\n}\n\n")
-            f.write("ssize_t ksu_kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos) {\n")
-            f.write("    return kernel_write(file, buf, count, pos);\n}\n\n")
-            f.write("bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {\n")
-            f.write("    return false;\n}\n\n")
-            f.write("int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {\n")
-            f.write("    return 0;\n}\n")
 
         print("[-] Patching MODULE_IMPORT_NS in KoWSU...")
         for root, dirs, files in os.walk("KernelSU-KoWSU"):
