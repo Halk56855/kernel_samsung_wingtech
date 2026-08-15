@@ -36,14 +36,14 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and running Universal Built-in 4.19 Patcher & Compat Stubs..."
+        echo "[-] Running Advanced Python Patcher to completely strip MODULE_IMPORT_NS and enforce Built-in..."
         python3 -c '
         import os, re
 
-        # 1. Force all Makefiles in YukiSU to obj-y (Built-in) and strip module flags
+        # 1. Force all Makefiles and Kbuild to obj-y
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
-                if file == "Makefile" or file.endswith(".mk"):
+                if file in ["Makefile", "Kbuild"] or file.endswith(".mk"):
                     path = os.path.join(root, file)
                     try:
                         content = open(path, "r", encoding="utf-8", errors="ignore").read()
@@ -54,7 +54,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Comprehensive code patching for Kernel 4.19 compatibility (stripping MODULE_IMPORT_NS, etc.)
+        # 2. Aggressively strip MODULE_IMPORT_NS and fix headers in all source files
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -62,10 +62,10 @@ jobs:
                     try:
                         content = open(path, "r", encoding="utf-8", errors="ignore").read()
                         orig = content
-                        # Remove MODULE_IMPORT_NS completely to fix 4.19 compilation error
-                        content = re.sub(r"MODULE_IMPORT_NS\\s*\\([^)]*\\)\\s*;?", "/* [Compat-4.19] MODULE_IMPORT_NS stripped */", content)
-                        content = re.sub(r"<linux/seccomp_types\\.h>", "<linux/seccomp.h>", content)
-                        content = re.sub(r"#include\\s*<\\s*linux/minmax\\.h\\s*>", "#include <linux/kernel.h>", content)
+                        # Completely remove lines containing MODULE_IMPORT_NS
+                        content = re.sub(r"^.*MODULE_IMPORT_NS.*$", "/* [Compat-4.19] MODULE_IMPORT_NS removed */", content, flags=re.MULTILINE)
+                        content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
+                        content = re.sub(r"#include\s*<\s*linux/minmax\.h\s*>", "#include <linux/kernel.h>", content)
                         if content != orig:
                             open(path, "w", encoding="utf-8").write(content)
                     except:
@@ -106,7 +106,7 @@ jobs:
                         open(path, "w", encoding="utf-8").write(content)
         '
         
-        echo "[+] YukiSU successfully prepared and patched for Kernel 4.19!"
+        echo "[+] YukiSU successfully sanitized and patched for Kernel 4.19 Built-in mode!"
 
     - name: Install build dependencies
       run: |
