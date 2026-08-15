@@ -223,13 +223,29 @@ jobs:
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "r") as f: content = f.read()
+            
+            compat_defs = """
+#include <security/selinux/ss/policydb.h>
+#include <security/selinux/security.h>
+static DEFINE_MUTEX(ksu_compat_policydb_mutex);
+#ifndef policydb_mutex
+#define policydb_mutex ksu_compat_policydb_mutex
+#endif
+"""
+            if "ksu_compat_policydb_mutex" not in content:
+                content = compat_defs + content
+
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             content = content.replace("selinux_state.policy", "policydb")
-            content = content.replace("selinux_state.policy_mutex", "selinux_state.lock")
+            content = content.replace("selinux_state.policy_mutex", "policydb_mutex")
+            content = content.replace("rcu_assign_pointer(policydb, pol);", "/* rcu_assign_pointer(policydb, pol); */")
+            content = content.replace("old_pol = policydb;", "/* old_pol = policydb; */")
+
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
             else:
                 content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
+            
             with open(rules_path, "w") as f: f.write(content)
             print("Patched rules.c for Kernel 4.19 SELinux structures")
 
