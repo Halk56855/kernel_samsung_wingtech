@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Fixing file_wrapper.c & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Dynamic Makefile, Excluding incompatible 5.x files & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -44,28 +44,25 @@ jobs:
         if not os.path.exists(kernelsu_dir) and os.path.exists('KernelSU/kernel'):
             kernelsu_dir = 'KernelSU/kernel'
 
-        # 1. Create stub for setuid_hook.c to satisfy Makefile target
+        # 1. Create stub for setuid_hook.c to satisfy Makefile target if referenced
         setuid_hook_path = os.path.join(kernelsu_dir, 'setuid_hook.c')
         if not os.path.exists(setuid_hook_path):
             with open(setuid_hook_path, 'w') as f:
                 f.write("/* AI Auto-generated stub for Kernel 4.19 compatibility */\nstatic int __attribute__((unused)) ksu_dummy_setuid_hook;\n")
 
-        # 2. Fix file_wrapper.c compatibility for Kernel 4.19 (handling missing iopoll & remap_file_range fields)
-        file_wrapper_path = os.path.join(kernelsu_dir, 'file_wrapper.c')
-        if os.path.exists(file_wrapper_path):
-            with open(file_wrapper_path, 'r') as f:
-                code = f.read()
+        # 2. Dynamically generate clean Makefile excluding incompatible 5.x files (like file_wrapper) and stubs for Kernel 4.19
+        if os.path.exists(kernelsu_dir):
+            c_files = [f[:-2] for f in os.listdir(kernelsu_dir) if f.endswith('.c')]
+            excluded = ['setuid_hook', 'susfs', 'kpm', 'su_sfs', 'file_wrapper']
+            valid_objects = [f"{f}.o" for f in sorted(c_files) if f not in excluded]
             
-            # Safely neutralize or remove references to iopoll and remap_file_range if struct file_operations lacks them in 4.19
-            code = code.replace("p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;", "/* p->ops.iopoll removed for Kernel 4.19 */")
-            code = code.replace("return orig->f_op->iopoll(kiocb, spin);", "return -EOPNOTSUPP;")
-            code = code.replace("p->ops.remap_file_range =", "/* remap_file_range removed */\n//p->ops.remap_file_range =")
-            code = code.replace("fp->f_op->remap_file_range ?", "0 ?")
-            code = code.replace("return orig->f_op->remap_file_range(", "return -EOPNOTSUPP; //")
-
-            with open(file_wrapper_path, 'w') as f:
-                f.write(code)
-            print("Successfully patched file_wrapper.c for Kernel 4.19 file_operations compatibility.")
+            makefile_content = "obj-y := " + " ".join(valid_objects) + "\n"
+            makefile_content += "ccflags-y += -I$(src)\n"
+            
+            makefile_path = os.path.join(kernelsu_dir, 'Makefile')
+            with open(makefile_path, 'w') as mf:
+                mf.write(makefile_content)
+            print(f"Successfully generated dynamic clean Makefile for Kernel 4.19 with objects: {valid_objects}")
 
         # 3. Fix SECCOMP_ARCH_NATIVE_NR missing identifier in seccomp_cache.c for Kernel 4.19
         seccomp_path = os.path.join(kernelsu_dir, 'seccomp_cache.c')
@@ -190,7 +187,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, file_wrapper compatibility fixed, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, Makefile dynamically cleaned, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
