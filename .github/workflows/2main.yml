@@ -20,7 +20,7 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (static_assert, Selinux Hide stub, KPM, SuSFS)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (Robust Multi-line static_assert cleaner, Selinux Hide stub, KPM, SuSFS)..."
         python3 -c '
         import os, re
         
@@ -39,12 +39,18 @@ jobs:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     
-                    # 0. Comment out static_assert lines for Kernel 4.19 compatibility
+                    # 0. Robust state-machine to comment out multi-line static_assert statements
                     lines = content.splitlines()
                     new_lines = []
+                    skip_assert = False
                     for line in lines:
                         if "static_assert" in line:
+                            skip_assert = True
                             new_lines.append("// " + line + " // [Compat-4.19] static_assert omitted")
+                        elif skip_assert:
+                            new_lines.append("// " + line)
+                            if ";" in line:
+                                skip_assert = False
                         else:
                             new_lines.append(line)
                     content = "\n".join(new_lines) + "\n"
