@@ -126,9 +126,11 @@ jobs:
         cat << 'EOF' > drivers/kernelsu/include/linux/task_work.h
         #ifndef _KSU_COMPAT_TASK_WORK_H
         #define _KSU_COMPAT_TASK_WORK_H
-        #include_next <linux/task_work.h>
         #ifndef TWA_RESUME
-        #define TWA_RESUME 0
+        #define TWA_RESUME 1
+        #endif
+        #ifndef TWA_NONE
+        #define TWA_NONE 0
         #endif
         #ifndef fallthrough
         #define fallthrough do {} while (0)
@@ -219,7 +221,6 @@ jobs:
             dc = dc.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
             dc = dc.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
             
-            # Ensure extern declaration for init_task exists at the top of the file
             if "extern struct task_struct init_task;" not in dc:
                 dc = "extern struct task_struct init_task;\n" + dc
 
