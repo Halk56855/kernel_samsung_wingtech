@@ -19,12 +19,34 @@ jobs:
     - name: Patch and Build Kernel
       run: |
         echo "[-] Cloning SukiSU-Ultra..."
+        rm -rf drivers/kernelsu SukiSU-Ultra
         git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
-        
-        echo "[-] Creating Compatibility Layer for Kernel 4.19..."
-        mkdir -p drivers/kernelsu
-        cat << 'EOF' > drivers/kernelsu/ksu_compat.h
-        #ifndef KSU_COMPAT_H
+
+        echo "[-] Setting up SukiSU-Ultra and Compatibility Layer for Kernel 4.19..."
+        python3 -c '
+        import os, shutil
+
+        # البحث التلقائي عن مسار الكود داخل مستودع SukiSU-Ultra
+        ksu_src = None
+        for root, dirs, files in os.walk("SukiSU-Ultra"):
+            if "Kconfig" in files:
+                ksu_src = root
+                break
+
+        if not ksu_src:
+            raise Exception("Kconfig not found in SukiSU-Ultra clone!")
+
+        print(f"[+] Found KSU source at: {ksu_src}")
+
+        # نسخ الملفات إلى drivers/kernelsu
+        if os.path.exists("drivers/kernelsu"):
+            shutil.rmtree("drivers/kernelsu")
+        shutil.copytree(ksu_src, "drivers/kernelsu")
+
+        # إنشاء ملف التوافقية للنواة 4.19
+        compat_h_path = "drivers/kernelsu/ksu_compat.h"
+        with open(compat_h_path, "w") as f:
+            f.write("""#ifndef KSU_COMPAT_H
         #define KSU_COMPAT_H
         #define MODULE_IMPORT_NS(ns)
         #ifndef TWA_RESUME
@@ -34,13 +56,29 @@ jobs:
         #define fallthrough do {} while (0)
         #endif
         #endif
-        EOF
+        """)
 
-        echo "[-] Linking KSU and Patching Makefile..."
-        # نسخ المحتوى مع إضافة include للملف التوافقي في أول سطر
-        cp -r SukiSU-Ultra/* drivers/kernelsu/
-        echo "ccflags-y += -include \$(src)/ksu_compat.h" > drivers/kernelsu/Makefile
-        cat SukiSU-Ultra/Makefile >> drivers/kernelsu/Makefile
+        # تعديل أو إنشاء الـ Makefile الخاص بـ KSU لإجبار تضمين ملف التوافقية
+        makefile_path = "drivers/kernelsu/Makefile"
+        if os.path.exists(makefile_path):
+            with open(makefile_path, "r") as f:
+                mf_content = f.read()
+            
+            if "ccflags-y" in mf_content:
+                mf_content = mf_content.replace("ccflags-y +=", "ccflags-y += -include $(src)/ksu_compat.h")
+            else:
+                mf_content = "ccflags-y += -include $(src)/ksu_compat.h\n" + mf_content
+            
+            with open(makefile_path, "w") as f:
+                f.write(mf_content)
+        else:
+            with open(makefile_path, "w") as f:
+                f.write("""ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
+        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+        obj-y += $(_ksu_c_files:.c=.o)
+        """)
+        print("[+] Compatibility layer and Makefile configured successfully.")
+        '
 
         echo "[-] Wiring Kconfig..."
         if ! grep -q "kernelsu" drivers/Kconfig; then echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig; fi
@@ -51,7 +89,6 @@ jobs:
         wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C toolchain/gcc
         
-        # التصدير
         GCC_PATH=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
