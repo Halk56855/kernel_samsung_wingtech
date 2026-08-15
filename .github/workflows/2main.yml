@@ -24,7 +24,7 @@ jobs:
         mkdir -p YukiSU/kernel/extension
         echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (Selinux Hide stub, KPM, SuSFS)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (file_wrapper iopoll/remap fix, Selinux Hide stub, KPM, SuSFS)..."
         python3 -c '
         import os, re
         
@@ -32,25 +32,46 @@ jobs:
             for file in files:
                 path = os.path.join(root, file)
                 
-                # Turn selinux_hide.c into a clean safe stub
+                # 1. Turn selinux_hide.c into a clean safe stub
                 if file == "selinux_hide.c":
                     with open(path, "w", encoding="utf-8") as f:
                         f.write("/* [Compat-4.19] SELinux Hide disabled safe stub */\nvoid ksu_selinux_hide_dummy(void) {}\n")
                     print(f"Stubbed selinux_hide.c successfully: {path}")
                     continue
 
+                # 2. Patch file_wrapper.c for Kernel 4.19 missing iopoll & remap_file_range
+                if file == "file_wrapper.c":
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    
+                    lines = content.splitlines()
+                    new_lines = []
+                    for line in lines:
+                        if any(term in line for term in ["iopoll", "remap_file_range", "REMAP_FILE_DEDUP"]):
+                            new_lines.append("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)")
+                            new_lines.append(line)
+                            new_lines.append("#endif")
+                        else:
+                            new_lines.append(line)
+                    content = "\n".join(new_lines) + "\n"
+                    
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    print(f"Patched file_wrapper.c for Kernel 4.19 compatibility successfully: {path}")
+                    continue
+
                 if file.endswith((".c", ".h", "Kconfig", "Makefile")):
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
 
-                    # 1. MODULE_IMPORT_NS
+                    # MODULE_IMPORT_NS
                     new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
 
-                    # 2. task_work_add
+                    # task_work_add
                     content2 = new_content
                     new_content = re.sub(r"task_work_add\s*\(([^,]+),\s*([^,]+),\s*TWA_[A-Z_]+\s*\)", r"task_work_add(\1, \2, true)", content2)
 
-                    # 3. seccomp.filter_count
+                    # seccomp.filter_count
                     lines = new_content.splitlines()
                     new_lines = []
                     seccomp_modified = False
@@ -63,23 +84,23 @@ jobs:
                     if seccomp_modified:
                         new_content = "\n".join(new_lines) + "\n"
 
-                    # 4. pgtable.h
+                    # pgtable.h
                     content3 = new_content
                     new_content = re.sub(r"#include\s+<linux/pgtable\.h>", "#include <asm/pgtable.h>", content3)
 
-                    # 5. handle_inode_event
+                    # handle_inode_event
                     content4 = new_content
                     new_content = re.sub(r"\.handle_inode_event\s*=", ".handle_event =", content4)
 
-                    # 6. force_sig
+                    # force_sig
                     content5 = new_content
                     new_content = re.sub(r"\bforce_sig\s*\(\s*([A-Z_]+)\s*\)", r"force_sig(\1, current)", content5)
 
-                    # 7. uapi/linux/mount.h
+                    # uapi/linux/mount.h
                     content6 = new_content
                     new_content = re.sub(r"#include\s+<uapi/linux/mount\.h>", "#include <linux/mount.h>", content6)
 
-                    # 8. access_ok
+                    # access_ok
                     content7 = new_content
                     new_content = re.sub(r"\baccess_ok\s*\(\s*([^,]+),\s*([^)]+)\s*\)", r"access_ok(VERIFY_READ, \1, \2)", content7)
 
