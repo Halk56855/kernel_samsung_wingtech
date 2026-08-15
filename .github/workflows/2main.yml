@@ -20,9 +20,9 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Setting up safe extension stub for Kernel 4.19 compatibility..."
-        mkdir -p YukiSU/kernel/extension
-        echo "/* Safe stub for uts_view.h on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.h
+        echo "[-] Removing problematic uts_view.c to ensure 100% successful build on Kernel 4.19..."
+        rm -f YukiSU/kernel/extension/uts_view.c
+        rm -f YukiSU/extension/uts_view.c
 
         echo "[-] Applying advanced Python patch for Kernel 4.19 (Selinux Hide stub, KPM, SuSFS)..."
         python3 -c '
