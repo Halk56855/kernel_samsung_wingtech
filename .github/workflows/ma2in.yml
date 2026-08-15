@@ -54,30 +54,37 @@ jobs:
         EOF
         done
 
-    - name: Fix seccomp_cache.c and pkg_observer.c for Kernel 4.19
+    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist)
       run: |
         python3 - << 'EOF'
         import os
         for root, dirs, files in os.walk("KernelSU-KoWSU"):
             for file in files:
+                path = os.path.join(root, file)
                 if file == "seccomp_cache.c":
-                    path = os.path.join(root, file)
                     with open(path, "r") as f:
                         content = f.read()
                     if "SECCOMP_ARCH_NATIVE_NR" in content and "ifndef SECCOMP_ARCH_NATIVE_NR" not in content:
                         patch = "/* Define fallback for SECCOMP_ARCH_NATIVE_NR on Linux 4.19 */\n#ifndef SECCOMP_ARCH_NATIVE_NR\n#include <asm/unistd.h>\n#ifdef __NR_syscalls\n#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls\n#else\n#define SECCOMP_ARCH_NATIVE_NR 512\n#endif\n#endif\n\n"
                         with open(path, "w") as f:
                             f.write(patch + content)
-                        print("Patched " + path)
+                        print("Patched seccomp_cache.c")
                 elif file == "pkg_observer.c":
-                    path = os.path.join(root, file)
                     with open(path, "r") as f:
                         content = f.read()
                     if "handle_inode_event" in content:
                         content = content.replace("handle_inode_event", "handle_event")
                         with open(path, "w") as f:
                             f.write(content)
-                        print("Patched pkg_observer.c for Kernel 4.19 fsnotify")
+                        print("Patched pkg_observer.c")
+                elif file == "allowlist.c":
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "TWA_RESUME" in content and "TWA_RESUME" not in content[:200]:
+                        patch = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n\n"
+                        with open(path, "w") as f:
+                            f.write(patch + content)
+                        print("Patched allowlist.c for TWA_RESUME")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
