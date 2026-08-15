@@ -20,11 +20,11 @@ jobs:
         echo "[-] Cloning Anatdx YukiSU repository..."
         git clone https://github.com/Anatdx/YukiSU.git YukiSU -b main
 
-        echo "[-] Creating clean empty stub for uts_view.c to satisfy Makefile while avoiding all 4.19 errors..."
+        echo "[-] Creating clean empty stub for uts_view.c to satisfy Makefile..."
         mkdir -p YukiSU/kernel/extension
         echo "/* Safe empty stub for uts_view.c on Kernel 4.19 */" > YukiSU/kernel/extension/uts_view.c
 
-        echo "[-] Applying advanced Python patch for Kernel 4.19 (file_wrapper iopoll/remap fix, Selinux Hide stub, KPM, SuSFS)..."
+        echo "[-] Applying advanced Python patch for Kernel 4.19 (file_wrapper clean sanitization, seccomp, Selinux Hide stub)..."
         python3 -c '
         import os, re
         
@@ -39,30 +39,28 @@ jobs:
                     print(f"Stubbed selinux_hide.c successfully: {path}")
                     continue
 
-                # 2. Patch file_wrapper.c for Kernel 4.19 missing iopoll & remap_file_range
+                # 2. Cleanly sanitize file_wrapper.c for Kernel 4.19 by removing unsupported 5.0+ wrappers
                 if file == "file_wrapper.c":
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     
-                    lines = content.splitlines()
-                    new_lines = []
-                    for line in lines:
-                        if any(term in line for term in ["iopoll", "remap_file_range", "REMAP_FILE_DEDUP"]):
-                            new_lines.append("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)")
-                            new_lines.append(line)
-                            new_lines.append("#endif")
-                        else:
-                            new_lines.append(line)
-                    content = "\n".join(new_lines) + "\n"
+                    # Remove iopoll and remap_file_range references cleanly without breaking syntax
+                    content = re.sub(r"static\s+__poll_t\s+ksu_wrapper_iopoll[^{]*\{[^}]*\}", "/* [Compat-4.19] iopoll omitted */", content, flags=re.DOTALL)
+                    content = re.sub(r"static\s+ssize_t\s+ksu_wrapper_remap_file_range[^{]*\{[^}]*\}", "/* [Compat-4.19] remap_file_range omitted */", content, flags=re.DOTALL)
+                    content = re.sub(r"p->ops\.iopoll\s*=[^;]+;", "/* [Compat-4.19] iopoll op omitted */", content)
+                    content = re.sub(r"p->ops\.remap_file_range\s*=[^;]+;", "/* [Compat-4.19] remap op omitted */", content)
                     
                     with open(path, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print(f"Patched file_wrapper.c for Kernel 4.19 compatibility successfully: {path}")
+                    print(f"Sanitized file_wrapper.c for Kernel 4.19 successfully: {path}")
                     continue
 
                 if file.endswith((".c", ".h", "Kconfig", "Makefile")):
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
+
+                    # Fix seccomp_types.h inclusion for 4.19
+                    content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
 
                     # MODULE_IMPORT_NS
                     new_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]*\)\s*;?", "// [Compat-4.19] MODULE_IMPORT_NS removed", content)
@@ -126,7 +124,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
         
-        echo "[+] YukiSU integrated and fully patched for Kernel 4.19 (No KPM, No SuSFS, No Selinux Hide)!"
+        echo "[+] YukiSU integrated and fully patched for Kernel 4.19!"
 
     - name: Install build dependencies
       run: |
@@ -181,7 +179,6 @@ jobs:
           python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
         fi
 
-        # Disable IKHEADERS, KPM, SuSFS, and Selinux Hide options explicitly
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
         cat << 'EOT' >> $(pwd)/out/.config
