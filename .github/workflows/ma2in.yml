@@ -13,34 +13,34 @@ jobs:
 
     - name: Clean Integration of KoWSU & Complete Kernel 4.19 Compatibility Layer
       run: |
-        set -e
-        echo "[-] Cleaning up old remnants..."
-        rm -rf drivers/kernelsu KernelSU-KoWSU .git/modules/KernelSU-KoWSU fs/ksu_compat.c
-
-        echo "[-] Cloning KernelSU-KoWSU repository..."
-        git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU
-
-        echo "[-] Creating global include/linux/pgtable.h for Kernel 4.19 compatibility..."
-        mkdir -p include/linux
-        cat << 'EOF' > include/linux/pgtable.h
-        #ifndef _COMPAT_LINUX_PGTABLE_H
-        #define _COMPAT_LINUX_PGTABLE_H
-        #include <asm/pgtable.h>
-        #include <linux/mm.h>
-        #include <linux/highmem.h>
-        #endif
-        EOF
-
-        echo "[-] Forcibly replacing file_wrapper.c with a clean Kernel 4.19 safe version..."
         python3 -c '
-        import os
-        for root, dirs, files in os.walk("KernelSU-KoWSU"):
-            for f in files:
-                if f == "file_wrapper.c":
-                    path = os.path.join(root, f)
-                    print(f"[+] Overwriting target file_wrapper.c at: {path}")
-                    with open(path, "w") as fh:
-                        fh.write("""#include <linux/module.h>
+        import os, shutil, re
+
+        print("[-] Cleaning up old remnants...")
+        for p in ["drivers/kernelsu", "KernelSU-KoWSU", ".git/modules/KernelSU-KoWSU", "fs/ksu_compat.c"]:
+            if os.path.islink(p) or os.path.isfile(p):
+                os.remove(p)
+            elif os.path.isdir(p):
+                shutil.rmtree(p)
+
+        print("[-] Cloning KernelSU-KoWSU repository...")
+        os.system("git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU")
+
+        print("[-] Creating global include/linux/pgtable.h for Kernel 4.19...")
+        os.makedirs("include/linux", exist_ok=True)
+        with open("include/linux/pgtable.h", "w") as f:
+            f.write("""#ifndef _COMPAT_LINUX_PGTABLE_H
+#define _COMPAT_LINUX_PGTABLE_H
+#include <asm/pgtable.h>
+#include <linux/mm.h>
+#include <linux/highmem.h>
+#endif
+""")
+
+        print("[-] Creating clean file_wrapper.c for Kernel 4.19...")
+        os.makedirs("drivers/kernelsu/infra", exist_ok=True)
+        with open("drivers/kernelsu/infra/file_wrapper.c", "w") as f:
+            f.write("""#include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/version.h>
@@ -71,14 +71,23 @@ int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_
     return 0;
 }
 """)
-        '
 
-        echo "[-] Patching MODULE_IMPORT_NS in KoWSU..."
-        find KernelSU-KoWSU -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\* MODULE_IMPORT_NS \*\//g' {} +
+        print("[-] Patching MODULE_IMPORT_NS in KoWSU...")
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    path = os.path.join(root, file)
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as fx:
+                            content = fx.read()
+                        if "MODULE_IMPORT_NS" in content:
+                            content = content.replace("MODULE_IMPORT_NS", "/* MODULE_IMPORT_NS */")
+                            with open(path, "w", encoding="utf-8") as fx:
+                                fx.write(content)
+                    except Exception:
+                        pass
 
-        echo "[-] Linking KernelSU-KoWSU folder to drivers/kernelsu..."
-        python3 -c '
-        import os, shutil
+        print("[-] Linking KernelSU-KoWSU...")
         ksu_src = None
         for root, dirs, files in os.walk("KernelSU-KoWSU"):
             if "Kconfig" in files:
@@ -86,79 +95,81 @@ int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_
                 break
         if not ksu_src:
             raise Exception("Kconfig not found!")
-        if os.path.islink("drivers/kernelsu") or os.path.exists("drivers/kernelsu"):
-            if os.path.islink("drivers/kernelsu"):
-                os.unlink("drivers/kernelsu")
+        
+        target_link = "drivers/kernelsu"
+        if os.path.islink(target_link) or os.path.exists(target_link):
+            if os.path.islink(target_link):
+                os.unlink(target_link)
             else:
-                shutil.rmtree("drivers/kernelsu")
-        os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        '
+                shutil.rmtree(target_link)
+        os.symlink(os.path.relpath(ksu_src, "drivers"), target_link)
 
-        echo "[-] Injecting compatibility layer into fs/..."
-        cat << 'EOF' > fs/ksu_compat.c
-        #include <linux/module.h>
-        #include <linux/types.h>
-        #include <linux/fs.h>
-        #include <linux/sched.h>
-        #include <linux/uaccess.h>
+        print("[-] Injecting compatibility layer into fs/...")
+        with open("fs/ksu_compat.c", "w") as f:
+            f.write("""#include <linux/module.h>
+#include <linux/types.h>
+#include <linux/fs.h>
+#include <linux/sched.h>
+#include <linux/uaccess.h>
 
-        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-            return false;
-        }
+bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+    return false;
+}
 
-        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-            return 0;
-        }
+int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
+    return 0;
+}
 
-        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return false;
-        }
+bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+    return false;
+}
 
-        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return 0;
-        }
-        EOF
+int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+    return 0;
+}
+""")
 
-        if ! grep -q "ksu_compat.o" fs/Makefile; then
-          echo 'obj-y += ksu_compat.o' >> fs/Makefile
-        fi
+        with open("fs/Makefile", "r") as f:
+            fs_mk = f.read()
+        if "ksu_compat.o" not in fs_mk:
+            with open("fs/Makefile", "a") as f:
+                f.write("\nobj-y += ksu_compat.o\n")
 
-        echo "[-] Injecting custom Makefile for KernelSU-KoWSU..."
-        cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-        obj-y += $(_ksu_c_files:.c=.o)
-        EOF
+        print("[-] Injecting custom Makefile for KernelSU-KoWSU...")
+        with open("drivers/kernelsu/Makefile", "w") as f:
+            f.write("""ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+_ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+obj-y += $(_ksu_c_files:.c=.o)
+""")
 
-        echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
-        python3 -c '
-        import os, re
+        print("[-] Fixing SELinux files...")
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
-            with open(rules_path, "r") as fh: content = fh.read()
+            with open(rules_path, "r") as f: content = f.read()
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
             else:
                 content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
-            with open(rules_path, "w") as fh: fh.write(content)
+            with open(rules_path, "w") as f: f.write(content)
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
-            with open(selinux_path, "r") as fh: content = fh.read()
-            if "#include \"selinux_defs.h\"" not in content:
-                content = "#include \"selinux_defs.h\"\n" + content
+            with open(selinux_path, "r") as f: content = f.read()
+            if '#include "selinux_defs.h"' not in content:
+                content = '#include "selinux_defs.h"\n' + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
-            with open(selinux_path, "w") as fh: fh.write(content)
-        '
+            with open(selinux_path, "w") as f: f.write(content)
 
-        echo "[-] Wiring Kconfig and Makefile safely into drivers..."
-        if ! grep -q "kernelsu" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
-        fi
+        print("[-] Wiring Kconfig and Makefile into drivers...")
+        with open("drivers/Kconfig", "r") as f: kconfig_content = f.read()
+        if 'source "drivers/kernelsu/Kconfig"' not in kconfig_content:
+            with open("drivers/Kconfig", "a") as f: f.write('\nsource "drivers/kernelsu/Kconfig"\n')
+
+        with open("drivers/Makefile", "r") as f: drv_mk = f.read()
+        if 'obj-y += kernelsu/' not in drv_mk:
+            with open("drivers/Makefile", "a") as f: f.write('\nobj-y += kernelsu/\n')
+        '
 
     - name: Install build dependencies
       run: |
