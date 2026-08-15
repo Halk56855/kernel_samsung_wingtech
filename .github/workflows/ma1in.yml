@@ -211,15 +211,19 @@ jobs:
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
-        # 3. Fix dispatch.c tasklist_lock & init_task missing in Kernel 4.19
+        # 3. Fix dispatch.c tasklist_lock & init_task for Kernel 4.19
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
         if os.path.exists(dispatch_path):
             with open(dispatch_path, "r", errors="ignore") as f:
                 dc = f.read()
             dc = dc.replace("write_lock_irq(&tasklist_lock);", "/* write_lock_irq(&tasklist_lock); */")
             dc = dc.replace("write_unlock_irq(&tasklist_lock);", "/* write_unlock_irq(&tasklist_lock); */")
-            dc = dc.replace("task_pgrp(&init_task)", "task_pgrp(&init_task_union.task)")
-            dc = dc.replace("task_session(&init_task)", "task_session(&init_task_union.task)")
+            
+            # Ensure extern declaration for init_task exists at the top of the file
+            if "extern struct task_struct init_task;" not in dc:
+                dc = "extern struct task_struct init_task;\n" + dc
+
+            dc = dc.replace("init_task_union.task", "init_task")
             with open(dispatch_path, "w") as f:
                 f.write(dc)
 
