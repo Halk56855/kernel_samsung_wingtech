@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Linking missing stubs to Makefile & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Direct Inline Stubs Injection & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -44,51 +44,43 @@ jobs:
         if not os.path.exists(kernelsu_dir) and os.path.exists('KernelSU/kernel'):
             kernelsu_dir = 'KernelSU/kernel'
 
-        # 1. Create stub for setuid_hook.c to satisfy Makefile target if referenced
+        # 1. Inject inline stubs directly into supercalls.c to resolve missing symbols permanently
+        supercalls_path = os.path.join(kernelsu_dir, 'supercalls.c')
+        if os.path.exists(supercalls_path):
+            with open(supercalls_path, 'r') as f:
+                content = f.read()
+            stubs = """
+        /* AI Auto-generated inline stubs for Kernel 4.19 missing symbols */
+        #include <linux/fs.h>
+        int __attribute__((weak)) handle_sepolicy(unsigned long arg) { return -1; }
+        int __attribute__((weak)) ksu_file_sid(struct file *file, u32 *sid) { if (sid) *sid = 0; return -1; }
+        int __attribute__((weak)) ksu_install_file_wrapper(void) { return -1; }
+        """
+            if 'handle_sepolicy' not in content:
+                content = stubs + content
+                with open(supercalls_path, 'w') as f:
+                    f.write(content)
+
+        # 2. Inject inline stub for path_mount directly into su_mount_ns.c
+        su_mount_path = os.path.join(kernelsu_dir, 'su_mount_ns.c')
+        if os.path.exists(su_mount_path):
+            with open(su_mount_path, 'r') as f:
+                content = f.read()
+            mount_stub = """
+        /* AI Auto-generated inline stub for Kernel 4.19 missing path_mount */
+        #include <linux/path.h>
+        int __attribute__((weak)) path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) { return -1; }
+        """
+            if 'path_mount' not in content:
+                content = mount_stub + content
+                with open(su_mount_path, 'w') as f:
+                    f.write(content)
+
+        # 3. Create stub for setuid_hook.c to satisfy Makefile target if referenced
         setuid_hook_path = os.path.join(kernelsu_dir, 'setuid_hook.c')
         if not os.path.exists(setuid_hook_path):
             with open(setuid_hook_path, 'w') as f:
                 f.write("/* AI Auto-generated stub for Kernel 4.19 compatibility */\nstatic int __attribute__((unused)) ksu_dummy_setuid_hook;\n")
-
-        # 2. Provide safe stubs for missing symbols (handle_sepolicy, ksu_file_sid, ksu_install_file_wrapper, path_mount)
-        stubs_file = os.path.join(kernelsu_dir, 'kernel_419_stubs.c')
-        with open(stubs_file, 'w') as f:
-            f.write("""
-        /* AI Auto-generated stubs for Kernel 4.19 missing symbols */
-        #include <linux/types.h>
-        #include <linux/fs.h>
-        #include <linux/dcache.h>
-
-        int __attribute__((weak)) handle_sepolicy(unsigned long arg) {
-            return -1;
-        }
-
-        int __attribute__((weak)) ksu_file_sid(struct file *file, u32 *sid) {
-            if (sid) *sid = 0;
-            return -1;
-        }
-
-        int __attribute__((weak)) ksu_install_file_wrapper(void) {
-            return -1;
-        }
-
-        int __attribute__((weak)) path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) {
-            return -1;
-        }
-        """)
-
-        # 3. Ensure kernel_419_stubs.c is built by appending to KernelSU Makefile
-        kernelsu_makefile = os.path.join(kernelsu_dir, 'Makefile')
-        if os.path.exists(kernelsu_makefile):
-            with open(kernelsu_makefile, 'r') as f:
-                mf_content = f.read()
-            if 'kernel_419_stubs.o' not in mf_content:
-                mf_content += "\nobj-y += kernel_419_stubs.o\n"
-                with open(kernelsu_makefile, 'w') as f:
-                    f.write(mf_content)
-        else:
-            with open(kernelsu_makefile, 'w') as f:
-                f.write("obj-y += kernel_419_stubs.o\n")
 
         # 4. Nullify file_wrapper.c completely so it compiles cleanly as an empty unit on Kernel 4.19
         for fw_path in glob.glob('**/file_wrapper.c', recursive=True):
@@ -214,14 +206,14 @@ jobs:
         };
         #endif
         """
-            last_include_idx = code.rfind('#include')
-            if last_include_idx != -1:
-                end_of_line = code.find('\n', last_include_idx)
-                code = code[:end_of_line + 1] + forced_patch + code[end_of_line + 1:]
+            last_index = code.rfind('#include')
+            if last_index != -1:
+                end_line = code.find('\n', last_index)
+                code = code[:end_line + 1] + forced_patch + code[end_line + 1:]
             else:
                 code = forced_patch + code
 
-            headers_to_add = """
+            headers = """
         #include <linux/types.h>
         #include <linux/sched.h>
         #include <linux/uaccess.h>
@@ -232,7 +224,7 @@ jobs:
         #include <linux/fs.h>
         """
             if '#include <linux/path.h>' not in code:
-                code = headers_to_add + code
+                code = headers + code
 
             with open(sucompat_path, 'w') as f:
                 f.write(code)
@@ -241,7 +233,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, stubs linked to Makefile, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, inline stubs injected, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
