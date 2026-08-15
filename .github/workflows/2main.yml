@@ -67,6 +67,11 @@ jobs:
                         open(path, "w", encoding="utf-8").write("/* [Compat-4.19] Safe stub for sepolicy.c */\\n#include <linux/types.h>\\n#include <linux/kernel.h>\\n#include <linux/init.h>\\nint ksu_sec_policy_init(void) { return 0; }\\nvoid *ksu_dup_sepolicy(void *old) { return NULL; }\\nbool ksu_is_unsupported_sepolicy(void) { return false; }\\nint ksu_allow(char *s, char *t, char *c, char *p) { return 0; }\\n")
                     except: pass
                     continue
+                if file == "rules.c":
+                    try:
+                        open(path, "w", encoding="utf-8").write("/* [Compat-4.19] Safe stub for rules.c */\\n#include <linux/types.h>\\n#include <linux/kernel.h>\\nint ksu_selinux_init(void) { return 0; }\\nvoid ksu_selinux_exit(void) {}\\n")
+                    except: pass
+                    continue
                 if file.endswith((".c", ".h")):
                     try:
                         content = open(path, "r", encoding="utf-8", errors="ignore").read()
