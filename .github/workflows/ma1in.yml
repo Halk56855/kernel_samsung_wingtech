@@ -141,19 +141,54 @@ jobs:
         #endif
         EOF
 
-        echo "[-] Injecting custom Makefile for SukiSU-Ultra with robust compiler definitions..."
+        echo "[-] Injecting custom Makefile for SukiSU-Ultra with comprehensive include flags..."
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(src)/include -I$(src)/include/uapi -I$(src)/selinux -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)"
+        ccflags-y += -w -I$(src) \
+                     -I$(src)/core \
+                     -I$(src)/policy \
+                     -I$(src)/manager \
+                     -I$(src)/supercall \
+                     -I$(src)/kpm \
+                     -I$(src)/infra \
+                     -I$(src)/selinux \
+                     -I$(src)/include \
+                     -I$(src)/include/uapi \
+                     -I$(srctree)/security/selinux \
+                     -I$(srctree)/security/selinux/include \
+                     -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)"
+
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Applying Full AI Automatic Patches for Kernel 4.19..."
+        echo "[-] Applying Full AI Automatic Patches & Header Distribution for Kernel 4.19..."
         python3 -c '
         import os, re, glob
 
-        # 1. Neutralize manual hook check in all mk and Makefiles
-        for root, dirs, files in os.walk("SukiSU-Ultra"):
+        # 1. Distribute selinux_defs.h into ALL subdirectories of drivers/kernelsu so any #include will find it instantly
+        selinux_defs_content = """#ifndef _KSU_SELINUX_DEFS_H
+        #define _KSU_SELINUX_DEFS_H
+        #include <linux/types.h>
+        #include <linux/sched.h>
+        #ifndef fallthrough
+        #define fallthrough do {} while (0)
+        #endif
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 1
+        #endif
+        #ifndef TWA_NONE
+        #define TWA_NONE 0
+        #endif
+        #endif
+        """
+
+        for root, dirs, files in os.walk("drivers/kernelsu"):
+            target_path = os.path.join(root, "selinux_defs.h")
+            with open(target_path, "w") as f:
+                f.write(selinux_defs_content)
+
+        # 2. Neutralize manual hook check in all mk and Makefiles
+        for root, dirs, files in os.walk("drivers/kernelsu"):
             for f in files:
                 if f.endswith(".mk") or f == "Makefile":
                     fp = os.path.join(root, f)
@@ -166,7 +201,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Replace rules.c and sepolicy.c with clean stubs compatible with Kernel 4.19 SELinux API
+        # 3. Replace rules.c and sepolicy.c with clean stubs compatible with Kernel 4.19 SELinux API
         rules_path = "drivers/kernelsu/selinux/rules.c"
         with open(rules_path, "w") as f:
             f.write("""
@@ -207,7 +242,7 @@ jobs:
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
-        # 3. Fix dispatch.c tasklist_lock & init_task for Kernel 4.19
+        # 4. Fix dispatch.c tasklist_lock & init_task for Kernel 4.19
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
         if os.path.exists(dispatch_path):
             with open(dispatch_path, "r", errors="ignore") as f:
@@ -222,7 +257,7 @@ jobs:
             with open(dispatch_path, "w") as f:
                 f.write(dc)
 
-        # 4. Fix kpm.c access_ok macro mismatch
+        # 5. Fix kpm.c access_ok macro mismatch
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
             with open(kpm_path, "r", errors="ignore") as fh: content = fh.read()
@@ -239,7 +274,7 @@ jobs:
             content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
 
-        # 5. Safely wrap file_wrapper.c functions using Kernel Version Guards
+        # 6. Safely wrap file_wrapper.c functions using Kernel Version Guards
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
             with open(fw_path, "r", errors="ignore") as fh:
@@ -251,7 +286,7 @@ jobs:
             with open(fw_path, "w") as fh:
                 fh.write(guarded_fw)
 
-        # 6. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
+        # 7. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
         seccomp_path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(seccomp_path):
             with open(seccomp_path, "r", errors="ignore") as f:
@@ -271,7 +306,7 @@ jobs:
                 with open(seccomp_path, "w") as f:
                     f.write(seccomp_content)
 
-        # 7. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
+        # 8. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
         pkg_path = "drivers/kernelsu/manager/pkg_observer.c"
         if os.path.exists(pkg_path):
             with open(pkg_path, "w") as f:
@@ -290,7 +325,7 @@ jobs:
         }
         """)
 
-        # 8. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
+        # 9. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
         app_profile_path = "drivers/kernelsu/policy/app_profile.c"
         if os.path.exists(app_profile_path):
             with open(app_profile_path, "r", errors="ignore") as f:
@@ -298,21 +333,6 @@ jobs:
             ap_content = ap_content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* filter_count not present in kernel 4.19 seccomp struct */")
             with open(app_profile_path, "w") as f:
                 f.write(ap_content)
-
-        # 9. Inject compatibility macros into all .c files to guarantee TWA_RESUME and fallthrough exist
-        for path in glob.glob("drivers/kernelsu/**/*.c", recursive=True):
-            with open(path, "r", errors="ignore") as fh:
-                c_content = fh.read()
-            
-            header_injection = "#include \"selinux_defs.h\"\n"
-            if header_injection not in c_content:
-                c_content = header_injection + c_content
-
-            if "MODULE_IMPORT_NS" in c_content:
-                c_content = re.sub(r"MODULE_IMPORT_NS\s*\([^)]+\)\s*;?", "/* MODULE_IMPORT_NS removed for 4.19 */", c_content)
-                
-            with open(path, "w") as fh:
-                fh.write(c_content)
         '
 
         echo "[-] Wiring Kconfig and Makefile safely into drivers..."
