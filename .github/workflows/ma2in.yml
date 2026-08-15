@@ -56,19 +56,20 @@ jobs:
 
     - name: Fix seccomp_cache.c for Kernel 4.19
       run: |
-        find KernelSU-KoWSU -name "seccomp_cache.c" -type f | while read sc; do
-          python3 -c '
-          import sys
-          path = sys.argv[1]
-          with open(path, "r") as f:
-              content = f.read()
-          if "SECCOMP_ARCH_NATIVE_NR" in content and "ifndef SECCOMP_ARCH_NATIVE_NR" not in content:
-              patch = """/* Define fallback for SECCOMP_ARCH_NATIVE_NR on Linux 4.19 */\n#ifndef SECCOMP_ARCH_NATIVE_NR\n#include <asm/unistd.h>\n#ifdef __NR_syscalls\n#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls\n#else\n#define SECCOMP_ARCH_NATIVE_NR 512\n#endif\n#endif\n\n"""
-              with open(path, "w") as f:
-                  f.write(patch + content)
-              print("Patched " + path)
-          ' "$sc"
-        done
+        python3 - << 'EOF'
+        import os
+        for root, dirs, files in os.walk("KernelSU-KoWSU"):
+            for file in files:
+                if file == "seccomp_cache.c":
+                    path = os.path.join(root, file)
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "SECCOMP_ARCH_NATIVE_NR" in content and "ifndef SECCOMP_ARCH_NATIVE_NR" not in content:
+                        patch = "/* Define fallback for SECCOMP_ARCH_NATIVE_NR on Linux 4.19 */\n#ifndef SECCOMP_ARCH_NATIVE_NR\n#include <asm/unistd.h>\n#ifdef __NR_syscalls\n#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls\n#else\n#define SECCOMP_ARCH_NATIVE_NR 512\n#endif\n#endif\n\n"
+                        with open(path, "w") as f:
+                            f.write(patch + content)
+                        print("Patched " + path)
+        EOF
 
     - name: Create pgtable.h compatibility header
       run: |
@@ -88,7 +89,7 @@ jobs:
 
     - name: Link KoWSU to drivers
       run: |
-        python3 -c '
+        python3 - << 'EOF'
         import os, shutil
         ksu_src = None
         for root, dirs, files in os.walk("KernelSU-KoWSU"):
@@ -104,7 +105,7 @@ jobs:
             else:
                 shutil.rmtree(target_link)
         os.symlink(os.path.relpath(ksu_src, "drivers"), target_link)
-        '
+        EOF
 
     - name: Inject fs compatibility layer
       run: |
@@ -146,7 +147,7 @@ jobs:
 
     - name: Fix SELinux and wire drivers
       run: |
-        python3 -c '
+        python3 - << 'EOF'
         import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
@@ -165,7 +166,7 @@ jobs:
                 content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as f: f.write(content)
-        '
+        EOF
 
         if ! grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
