@@ -154,7 +154,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Replace SELinux rules.c with a clean Kernel 4.19 compatible stub to completely avoid struct selinux_policy errors
+        # 2. Replace rules.c and sepolicy.c with clean stubs compatible with Kernel 4.19 SELinux API
         rules_path = "drivers/kernelsu/selinux/rules.c"
         with open(rules_path, "w") as f:
             f.write("""
@@ -169,6 +169,23 @@ jobs:
         }
 
         void ksu_apply_sepolicy(void) {
+        }
+        """)
+
+        sepolicy_path = "drivers/kernelsu/selinux/sepolicy.c"
+        with open(sepolicy_path, "w") as f:
+            f.write("""
+        #include <linux/init.h>
+        #include <linux/kernel.h>
+        #include <linux/version.h>
+        #include <linux/types.h>
+        #include \"selinux_defs.h\"
+
+        void *ksu_dup_sepolicy(void *old_pol) {
+            return NULL;
+        }
+
+        void ksu_destroy_sepolicy(void *pol) {
         }
         """)
 
