@@ -11,13 +11,24 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clean Integration of KoWSU & Automated 4.19 Patching
+    - name: Clean Integration of KoWSU & Global Kernel 4.19 Compatibility Layer
       run: |
         echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu KernelSU-KoWSU .git/modules/KernelSU-KoWSU fs/ksu_compat.c
 
         echo "[-] Cloning KernelSU-KoWSU repository..."
         git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU
+
+        echo "[-] Creating global include/linux/pgtable.h for Kernel 4.19 compatibility..."
+        mkdir -p include/linux
+        cat << 'EOF' > include/linux/pgtable.h
+        #ifndef _COMPAT_LINUX_PGTABLE_H
+        #define _COMPAT_LINUX_PGTABLE_H
+        #include <asm/pgtable.h>
+        #include <linux/mm.h>
+        #include <linux/highmem.h>
+        #endif
+        EOF
 
         echo "[-] Automatically patching MODULE_IMPORT_NS for Kernel 4.19 compatibility..."
         python3 -c '
