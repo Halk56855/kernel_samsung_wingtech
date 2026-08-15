@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Neutralizing SELinux directory, file_wrapper, Stubs & Disabling SuSFS/KPM)..."
+        echo "[-] Creating and applying Advanced AI Auto-Patch script for Kernel 4.19 (Fixing KERNEL_SU_DOMAIN, SELinux, file_wrapper & Disabling SuSFS/KPM)..."
         cat << 'EOF' > patch_ksu.py
         import glob, os
 
@@ -97,13 +97,24 @@ jobs:
             with open(file_wrapper_path, 'w') as f:
                 f.write("/* Disabled for Kernel 4.19 compatibility */\n")
 
-        # 4. Create stub for setuid_hook.c to satisfy Makefile target if referenced
+        # 4. Fix allowlist.c KERNEL_SU_DOMAIN missing macro expansion
+        allowlist_path = os.path.join(kernelsu_dir, 'allowlist.c')
+        if os.path.exists(allowlist_path):
+            with open(allowlist_path, 'r') as f:
+                code = f.read()
+            code = code.replace('#define KSU_DEFAULT_SELINUX_DOMAIN "u:r:" KERNEL_SU_DOMAIN ":s0"', '#define KSU_DEFAULT_SELINUX_DOMAIN "u:r:su:s0"')
+            if '#define KERNEL_SU_DOMAIN' not in code:
+                code = '#define KERNEL_SU_DOMAIN "su"\n' + code
+            with open(allowlist_path, 'w') as f:
+                f.write(code)
+
+        # 5. Create stub for setuid_hook.c to satisfy Makefile target if referenced
         setuid_hook_path = os.path.join(kernelsu_dir, 'setuid_hook.c')
         if not os.path.exists(setuid_hook_path):
             with open(setuid_hook_path, 'w') as f:
                 f.write("/* AI Auto-generated stub for Kernel 4.19 compatibility */\nstatic int __attribute__((unused)) ksu_dummy_setuid_hook;\n")
 
-        # 5. Fix duplicate symbol ksu_handle_execveat in sucompat.c by making it weak
+        # 6. Fix duplicate symbol ksu_handle_execveat in sucompat.c by making it weak
         sucompat_file = os.path.join(kernelsu_dir, 'sucompat.c')
         if os.path.exists(sucompat_file):
             with open(sucompat_file, 'r') as f:
@@ -113,7 +124,7 @@ jobs:
             with open(sucompat_file, 'w') as f:
                 f.write(code)
 
-        # 6. Fix SECCOMP_ARCH_NATIVE_NR missing identifier in seccomp_cache.c for Kernel 4.19
+        # 7. Fix SECCOMP_ARCH_NATIVE_NR missing identifier in seccomp_cache.c for Kernel 4.19
         seccomp_path = os.path.join(kernelsu_dir, 'seccomp_cache.c')
         if os.path.exists(seccomp_path):
             with open(seccomp_path, 'r') as f:
@@ -128,7 +139,7 @@ jobs:
                 with open(seccomp_path, 'w') as f:
                     f.write(code)
 
-        # 7. Fix uapi/linux/mount.h include issue for Kernel 4.19
+        # 8. Fix uapi/linux/mount.h include issue for Kernel 4.19
         for filepath in glob.glob(f'{kernelsu_dir}/**/*.c', recursive=True) + glob.glob(f'{kernelsu_dir}/**/*.h', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -146,7 +157,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 8. Patch task_work_add / TWA_RESUME across all KSU files
+        # 9. Patch task_work_add / TWA_RESUME across all KSU files
         for filepath in glob.glob(f'{kernelsu_dir}/**/*.c', recursive=True) + glob.glob('KernelSU/**/*.c', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -158,7 +169,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 9. Explicitly disable SuSFS and KPM defaults in Kconfig files
+        # 10. Explicitly disable SuSFS and KPM defaults in Kconfig files
         for filepath in glob.glob(f'{kernelsu_dir}/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
             try:
                 with open(filepath, 'r') as f:
@@ -174,7 +185,7 @@ jobs:
             except Exception as e:
                 pass
 
-        # 10. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
+        # 11. Patch pkg_observer.c for Kernel 4.19 fsnotify_ops compatibility (handle_inode_event -> handle_event)
         pkg_observer_path = os.path.join(kernelsu_dir, 'pkg_observer.c')
         if os.path.exists(pkg_observer_path):
             with open(pkg_observer_path, 'r') as f:
@@ -184,7 +195,7 @@ jobs:
                 with open(pkg_observer_path, 'w') as f:
                     f.write(content)
 
-        # 11. Robust structural and definition patch for sucompat.c
+        # 12. Robust structural and definition patch for sucompat.c
         sucompat_path = os.path.join(kernelsu_dir, 'sucompat.c')
         if os.path.exists(sucompat_path):
             with open(sucompat_path, 'r') as f:
@@ -236,7 +247,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] Wild_KSU fully integrated, SELinux incompatible module neutralized, and ultimate-patched for Kernel 4.19 Non-GKI!"
+        echo "[+] Wild_KSU fully integrated, KERNEL_SU_DOMAIN macro resolved, and ultimate-patched for Kernel 4.19 Non-GKI!"
 
     - name: Install build dependencies
       run: |
