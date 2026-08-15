@@ -71,6 +71,24 @@ jobs:
                         pass
                     continue
 
+                if file == "sepolicy.c":
+                    try:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write("""/* [Compat-4.19] Safe stub for sepolicy.c */
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+
+int ksu_sec_policy_init(void) { return 0; }
+void *ksu_dup_sepolicy(void *old) { return NULL; }
+bool ksu_is_unsupported_sepolicy(void) { return false; }
+int ksu_allow(char *s, char *t, char *c, char *p) { return 0; }
+""")
+                        print(f"Stubbed sepolicy.c for Kernel 4.19: {path}")
+                    except Exception:
+                        pass
+                    continue
+
                 if file.endswith((".c", ".h")):
                     try:
                         with open(path, "r", encoding="utf-8", errors="ignore") as f:
