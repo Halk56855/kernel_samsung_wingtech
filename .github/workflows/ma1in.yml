@@ -137,18 +137,44 @@ jobs:
                      -I$(src)/include/uapi \
                      -I$(srctree)/security/selinux \
                      -I$(srctree)/security/selinux/include \
-                     -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)" \
-                     -DMODULE_IMPORT_NS=__ignore_ns
+                     -DTWA_RESUME=1 -DTWA_NONE=0 -Dfallthrough="do {} while (0)"
 
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
 
-        echo "[-] Applying Full AI Automatic Patches & Header Distribution for Kernel 4.19..."
+        echo "[-] Applying Full AI Automatic Patches & Neutralizing MODULE_IMPORT_NS for Kernel 4.19..."
         python3 -c '
         import os, re, glob
 
-        # 1. Distribute robust selinux_defs.h into ALL subdirectories of drivers/kernelsu
+        # 1. Neutralize MODULE_IMPORT_NS and add compatibility macros across all c and h files
+        for root, dirs, files in os.walk("drivers/kernelsu"):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    fp = os.path.join(root, file)
+                    try:
+                        with open(fp, "r", errors="ignore") as f:
+                            content = f.read()
+                        
+                        modified = False
+                        if "MODULE_IMPORT_NS" in content:
+                            lines = content.splitlines()
+                            new_lines = []
+                            for line in lines:
+                                if "MODULE_IMPORT_NS" in line:
+                                    new_lines.append(f"/* Neutralized for Kernel 4.19: {line} */")
+                                else:
+                                    new_lines.append(line)
+                            content = "\n".join(new_lines)
+                            modified = True
+
+                        if modified:
+                            with open(fp, "w") as f:
+                                f.write(content)
+                    except Exception as e:
+                        print(f"Skipping {fp}: {e}")
+
+        # 2. Distribute robust selinux_defs.h into ALL subdirectories of drivers/kernelsu
         selinux_defs_content = """#ifndef _KSU_SELINUX_DEFS_H
         #define _KSU_SELINUX_DEFS_H
         #include <linux/types.h>
@@ -162,9 +188,6 @@ jobs:
         #ifndef TWA_NONE
         #define TWA_NONE 0
         #endif
-        #ifndef MODULE_IMPORT_NS
-        #define MODULE_IMPORT_NS(ns)
-        #endif
         #endif
         """
 
@@ -173,7 +196,7 @@ jobs:
             with open(target_path, "w") as f:
                 f.write(selinux_defs_content)
 
-        # 2. Neutralize manual hook check in all mk and Makefiles
+        # 3. Neutralize manual hook check in all mk and Makefiles
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for f in files:
                 if f.endswith(".mk") or f == "Makefile":
@@ -187,7 +210,7 @@ jobs:
                     except:
                         pass
 
-        # 3. Replace rules.c and sepolicy.c with clean stubs compatible with Kernel 4.19 SELinux API
+        # 4. Replace rules.c and sepolicy.c with clean stubs compatible with Kernel 4.19 SELinux API
         rules_path = "drivers/kernelsu/selinux/rules.c"
         with open(rules_path, "w") as f:
             f.write("""
@@ -228,7 +251,7 @@ jobs:
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
 
-        # 4. Fix dispatch.c tasklist_lock & init_task for Kernel 4.19
+        # 5. Fix dispatch.c tasklist_lock & init_task for Kernel 4.19
         dispatch_path = "drivers/kernelsu/supercall/dispatch.c"
         if os.path.exists(dispatch_path):
             with open(dispatch_path, "r", errors="ignore") as f:
@@ -243,7 +266,7 @@ jobs:
             with open(dispatch_path, "w") as f:
                 f.write(dc)
 
-        # 5. Fix kpm.c access_ok macro mismatch
+        # 6. Fix kpm.c access_ok macro mismatch
         kpm_path = "drivers/kernelsu/kpm/kpm.c"
         if os.path.exists(kpm_path):
             with open(kpm_path, "r", errors="ignore") as fh: content = fh.read()
@@ -260,7 +283,7 @@ jobs:
             content = "\n".join(lines)
             with open(kpm_path, "w") as fh: fh.write(content)
 
-        # 6. Safely wrap file_wrapper.c functions using Kernel Version Guards
+        # 7. Safely wrap file_wrapper.c functions using Kernel Version Guards
         fw_path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(fw_path):
             with open(fw_path, "r", errors="ignore") as fh:
@@ -272,7 +295,7 @@ jobs:
             with open(fw_path, "w") as fh:
                 fh.write(guarded_fw)
 
-        # 7. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
+        # 8. Fix seccomp_cache.c SECCOMP_ARCH_NATIVE_NR missing in Kernel 4.19
         seccomp_path = "drivers/kernelsu/infra/seccomp_cache.c"
         if os.path.exists(seccomp_path):
             with open(seccomp_path, "r", errors="ignore") as f:
@@ -292,7 +315,7 @@ jobs:
                 with open(seccomp_path, "w") as f:
                     f.write(seccomp_content)
 
-        # 8. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
+        # 9. Adapt pkg_observer.c for Kernel 4.19 fsnotify API compatibility
         pkg_path = "drivers/kernelsu/manager/pkg_observer.c"
         if os.path.exists(pkg_path):
             with open(pkg_path, "w") as f:
@@ -311,7 +334,7 @@ jobs:
         }
         """)
 
-        # 9. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
+        # 10. Fix app_profile.c filter_count missing in struct seccomp on Kernel 4.19
         app_profile_path = "drivers/kernelsu/policy/app_profile.c"
         if os.path.exists(app_profile_path):
             with open(app_profile_path, "r", errors="ignore") as f:
