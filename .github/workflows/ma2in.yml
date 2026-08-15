@@ -54,7 +54,7 @@ jobs:
         EOF
         done
 
-    - name: Fix seccomp_cache.c for Kernel 4.19
+    - name: Fix seccomp_cache.c and pkg_observer.c for Kernel 4.19
       run: |
         python3 - << 'EOF'
         import os
@@ -69,6 +69,15 @@ jobs:
                         with open(path, "w") as f:
                             f.write(patch + content)
                         print("Patched " + path)
+                elif file == "pkg_observer.c":
+                    path = os.path.join(root, file)
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "handle_inode_event" in content:
+                        content = content.replace("handle_inode_event", "handle_event")
+                        with open(path, "w") as f:
+                            f.write(content)
+                        print("Patched pkg_observer.c for Kernel 4.19 fsnotify")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
