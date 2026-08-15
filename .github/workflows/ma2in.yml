@@ -71,6 +71,46 @@ jobs:
                         print("Patched " + path)
         EOF
 
+    - name: Create uapi/linux/mount.h compatibility header
+      run: |
+        mkdir -p include/uapi/linux
+        cat << 'EOF' > include/uapi/linux/mount.h
+        #ifndef _UAPI_LINUX_MOUNT_H
+        #define _UAPI_LINUX_MOUNT_H
+
+        #ifndef MOUNT_ATTR_RDONLY
+        #define MOUNT_ATTR_RDONLY 0x00000001
+        #endif
+        #ifndef MOUNT_ATTR_NOSUID
+        #define MOUNT_ATTR_NOSUID 0x00000002
+        #endif
+        #ifndef MOUNT_ATTR_NODEV
+        #define MOUNT_ATTR_NODEV 0x00000004
+        #endif
+        #ifndef MOUNT_ATTR_NOEXEC
+        #define MOUNT_ATTR_NOEXEC 0x00000008
+        #endif
+
+        #ifndef OPEN_TREE_CLONE
+        #define OPEN_TREE_CLONE 1
+        #endif
+        #ifndef OPEN_TREE_CLOEXEC
+        #define OPEN_TREE_CLOEXEC 02000000
+        #endif
+
+        #ifndef MOVE_MOUNT_F_SYMLINKS
+        #define MOVE_MOUNT_F_SYMLINKS 0x00000001
+        #endif
+        #ifndef MOVE_MOUNT_F_AUTOMOUNT
+        #define MOVE_MOUNT_F_AUTOMOUNT 0x00000002
+        #endif
+        #ifndef MOVE_MOUNT_F_EMPTY_PATH
+        #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
+        #endif
+
+        #endif
+        EOF
+
     - name: Create pgtable.h compatibility header
       run: |
         mkdir -p include/linux
@@ -140,7 +180,7 @@ jobs:
     - name: Inject KoWSU Makefile
       run: |
         cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
+        ccflags-y += -w -I$(src) -I$(srctree)/include/uapi -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
         _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
         obj-y += $(_ksu_c_files:.c=.o)
         EOF
@@ -222,7 +262,7 @@ jobs:
         echo "STRIP=llvm-strip" >> $GITHUB_ENV
         echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
+        echo "KCFLAGS=-w -I$(pwd)/include -I$(pwd)/include/uapi -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
     - name: Configure and Compile Kernel
