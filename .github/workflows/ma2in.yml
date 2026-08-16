@@ -130,11 +130,11 @@ jobs:
                     with open(path, "r") as f:
                         content = f.read()
                     if "init_task" in content and "extern struct task_struct init_task;" not in content:
-                        patch = "extern struct task_struct init_task;\nextern rwlock_t tasklist_lock;\n"
+                        patch = "#include <linux/spinlock.h>\n#include <linux/sched.h>\nextern struct task_struct init_task;\nextern rwlock_t tasklist_lock;\n"
                         content = patch + content
                         with open(path, "w") as f:
                             f.write(content)
-                        print("Patched dispatch.c with extern declarations for init_task and tasklist_lock")
+                        print("Patched dispatch.c with required headers and declarations")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
@@ -399,7 +399,7 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
 
-    - name: Package into AnyKernel3 Flashable Zip
+    - name: Package into AnyKernel3 Flashable Zip and prepare boot/dtbo
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
