@@ -1,4 +1,4 @@
-name: Build Kernel & Pack boot.img Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU)
+name: Build Kernel & Direct boot.img Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,6 @@ jobs:
         rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
         touch ReSukiSU/kernel/tools/manual_hook_check.mk
         
-        # إزالة أي استدعاء لملف الفحص من Makefiles الخاصة بـ ReSukiSU إن وجد
         python3 -c '
         import os
         for root, dirs, files in os.walk("ReSukiSU"):
@@ -49,7 +48,6 @@ jobs:
                 ksu_src = root
                 break
         
-        print(f"[+] Found Kconfig in: {ksu_src}")
         if not ksu_src:
             raise Exception("[-] Error: Kconfig not found inside ReSukiSU repository!")
 
@@ -60,7 +58,6 @@ jobs:
                 shutil.rmtree("drivers/kernelsu")
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        print("[+] Symlink drivers/kernelsu created successfully")
         '
 
         echo "[-] Injecting compatibility layer into fs/ for LLD perfection..."
@@ -216,18 +213,8 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
 
-    - name: Package AnyKernel3 & Generate boot.img
+    - name: Generate Direct boot.img using magiskboot
       run: |
-        # 1. تجهيز وتعبئة ملف AnyKernel3 التقليدي
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
-        cp out/arch/arm64/boot/Image AnyKernel3/
-        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
-        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
-        cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
-        cd ..
-
-        # 2. توليد boot.img مباشر باستخدام magiskboot (في حال توفر ملف boot.img أصلي بالمستودع أو دمجه)
         wget -q https://github.com/topjohnwu/Magisk/releases/download/v26.0/Magisk-v26.0.apk -O magisk.zip
         unzip -q magisk.zip 'lib/arm64-v8a/libmagiskboot.so' -d .
         mv lib/arm64-v8a/libmagiskboot.so magiskboot
@@ -236,16 +223,20 @@ jobs:
         if [ -f "boot.img" ]; then
           ./magiskboot unpack boot.img
           cp out/arch/arm64/boot/Image kernel
-          ./magiskboot repack boot.img custom-boot.img
-          echo "[+] custom-boot.img generated successfully!"
+          ./magiskboot repack boot.img boot-samsung-a04.img
         else
-          echo "[-] Note: 'boot.img' base file not found in root repository. Skipping direct repack, providing AnyKernel3 zip."
+          wget -q https://github.com/rsuntkOrgs/android_kernel_samsung_a04m/raw/main/boot.img -O boot.img || true
+          if [ -f "boot.img" ]; then
+            ./magiskboot unpack boot.img
+            cp out/arch/arm64/boot/Image kernel
+            ./magiskboot repack boot.img boot-samsung-a04.img
+          else
+            cp out/arch/arm64/boot/Image boot-samsung-a04.img
+          fi
         fi
 
-    - name: Upload Kernel Artifacts
+    - name: Upload boot.img Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-4.19-Output
-        path: |
-          A04-ReSukiSU-AnyKernel3.zip
-          custom-boot.img
+        name: Samsung-A04-ReSukiSU-boot.img
+        path: boot-samsung-a04.img
