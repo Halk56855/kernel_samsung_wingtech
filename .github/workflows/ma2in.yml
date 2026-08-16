@@ -54,6 +54,32 @@ jobs:
         EOF
         done
 
+    - name: Create linux/minmax.h compatibility header
+      run: |
+        mkdir -p include/linux
+        cat << 'EOF' > include/linux/minmax.h
+        #ifndef _LINUX_MINMAX_H
+        #define _LINUX_MINMAX_H
+
+        #include <linux/kernel.h>
+
+        #define min(x, y) ({				\
+            typeof(x) _min1 = (x);			\
+            typeof(y) _min2 = (y);			\
+            (void) (&_min1 == &_min2);		\
+            _min1 < _min2 ? _min1 : _min2; })
+
+        #define max(x, y) ({				\
+            typeof(x) _max1 = (x);			\
+            typeof(y) _max2 = (y);			\
+            (void) (&_max1 == &_max2);		\
+            _max1 > _max2 ? _max1 : _max2; })
+
+        #define clamp(val, lo, hi) min(max(val, lo), hi)
+
+        #endif
+        EOF
+
     - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux)
       run: |
         python3 - << 'EOF'
@@ -260,7 +286,6 @@ jobs:
             void ksu_destroy_sepolicy(struct selinux_policy *pol) {
             }
             ''')
-        print("Replaced rules.c and sepolicy.c with clean 4.19 compatible stubs")
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
