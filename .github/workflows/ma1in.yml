@@ -14,7 +14,7 @@ jobs:
     - name: Setup Kernel Build Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
+        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm
 
     - name: Patch, Clean Clang Flags & Build Kernel
       run: |
