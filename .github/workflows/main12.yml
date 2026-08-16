@@ -1,0 +1,130 @@
+name: Build Kernel Samsung Wingtech 4.19 (a04)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Integrate KernelSU-Next (Dev) & Proper Wiring
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+
+        if [ ! -d "drivers/kernelsu" ]; then
+          if [ -d "KernelSU-Next/kernel" ]; then
+            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
+          elif [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
+          fi
+        fi
+
+        python3 -c '
+        with open("drivers/Makefile", "r") as f:
+            content = f.read()
+        if "kernelsu" not in content:
+            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
+            with open("drivers/Makefile", "w") as f:
+                f.write(content)
+        '
+
+        python3 -c '
+        with open("drivers/Kconfig", "r") as f:
+            content = f.read()
+        if "drivers/kernelsu/Kconfig" not in content:
+            idx = content.rfind("endmenu")
+            if idx != -1:
+                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
+            else:
+                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
+            with open("drivers/Kconfig", "w") as f:
+                f.write(content)
+        '
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc g++ clang python3 \
+          libncurses5-dev ccache make git zip \
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi
+
+    - name: Prepare directories
+      run: mkdir -p toolchain/gcc toolchain/clang
+
+    - name: Download GCC toolchain
+      run: |
+        cd toolchain/gcc
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        tar -xf gcc.tar.xz -C ./
+
+    - name: Download Clang r383902 (Compatible)
+      run: |
+        cd toolchain/clang
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        mkdir -p host/linux-x86/clang-r383902
+        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+
+    - name: Export environment variables
+      run: |
+        echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+        echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
+        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "KCFLAGS=-w" >> $GITHUB_ENV
+        echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
+        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+
+    - name: Build kernel
+      run: |
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          rsuntk-a04_defconfig
+
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        fi
+
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
+        
+        cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_IKHEADERS=n
+        CONFIG_KSU=y
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        EOT
+
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
+
+    - name: Package with AnyKernel3-a04
+      run: |
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
+        cd AnyKernel3
+        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
+
+    - name: Upload kernel artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: A04-KernelSU-Next-Flashable-Zip
+        path: A04-KernelSU-Next-AnyKernel3.zip
