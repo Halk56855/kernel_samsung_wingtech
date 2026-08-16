@@ -215,23 +215,32 @@ jobs:
 
     - name: Generate Direct boot.img using your Magiskboot repository
       run: |
-        # تحميل أداة magiskboot مباشرة من مستودعك الشخصي على GitHub
         wget -q https://raw.githubusercontent.com/Halk56855/Magiskboot/main/magiskboot -O magiskboot
         chmod +x magiskboot
 
+        # التحقق مما إذا كان boot.img الحالي تالفاً أو غير صالح
         if [ -f "boot.img" ]; then
+          if ! head -c 8 boot.img | grep -q "ANDROID!"; then
+            echo "[-] Existing boot.img is invalid or not an Android boot image. Removing..."
+            rm -f boot.img
+          fi
+        fi
+
+        # محاولة تحميل ملف boot.img سليم إذا لم يكن موجوداً
+        if [ ! -f "boot.img" ]; then
+          echo "[-] Downloading stock boot.img..."
+          wget -q https://github.com/rsuntkOrgs/android_kernel_samsung_a04m/raw/main/boot.img -O boot.img || true
+        fi
+
+        # فك وصنع ملف الإقلاع إن وجد سليماً، أو حفظ النواة كبديل آمن
+        if [ -f "boot.img" ] && head -c 8 boot.img | grep -q "ANDROID!"; then
+          echo "[-] Valid boot.img found. Unpacking and repacking..."
           ./magiskboot unpack boot.img
           cp out/arch/arm64/boot/Image kernel
           ./magiskboot repack boot.img boot-samsung-a04.img
         else
-          wget -q https://github.com/rsuntkOrgs/android_kernel_samsung_a04m/raw/main/boot.img -O boot.img || true
-          if [ -f "boot.img" ]; then
-            ./magiskboot unpack boot.img
-            cp out/arch/arm64/boot/Image kernel
-            ./magiskboot repack boot.img boot-samsung-a04.img
-          else
-            cp out/arch/arm64/boot/Image boot-samsung-a04.img
-          fi
+          echo "[-] Warning: Standard boot.img not available. Exporting compiled Image as boot-samsung-a04.img..."
+          cp out/arch/arm64/boot/Image boot-samsung-a04.img
         fi
 
     - name: Upload boot.img Artifact
