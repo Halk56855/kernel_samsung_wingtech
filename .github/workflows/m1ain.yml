@@ -213,11 +213,10 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
 
-    - name: Generate Direct boot.img using magiskboot
+    - name: Generate Direct boot.img using your Magiskboot repository
       run: |
-        wget -q https://github.com/topjohnwu/Magisk/releases/download/v26.0/Magisk-v26.0.apk -O magisk.zip
-        unzip -q magisk.zip 'lib/arm64-v8a/libmagiskboot.so' -d .
-        mv lib/arm64-v8a/libmagiskboot.so magiskboot
+        # تحميل أداة magiskboot مباشرة من مستودعك الشخصي على GitHub
+        wget -q https://raw.githubusercontent.com/Halk56855/Magiskboot/main/magiskboot -O magiskboot
         chmod +x magiskboot
 
         if [ -f "boot.img" ]; then
