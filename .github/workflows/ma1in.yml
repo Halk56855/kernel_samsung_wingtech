@@ -63,19 +63,41 @@ jobs:
             shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
+        # إزالة أسطر MODULE_IMPORT_NS تلقائياً لعدم توافقها مع نواة 4.19
+        for root, dirs, files in os.walk("drivers/kernelsu"):
+            for file in files:
+                if file.endswith((".c", ".h")):
+                    fp = os.path.join(root, file)
+                    try:
+                        with open(fp, "r", errors="ignore") as f:
+                            lines = f.readlines()
+                        
+                        modified = False
+                        new_lines = []
+                        for line in lines:
+                            if "MODULE_IMPORT_NS" in line:
+                                modified = True
+                                continue
+                            new_lines.append(line)
+                        
+                        if modified:
+                            with open(fp, "w") as f:
+                                f.writelines(new_lines)
+                    except Exception as e:
+                        pass
+
         compat_h_path = "drivers/kernelsu/ksu_compat.h"
         with open(compat_h_path, "w") as f:
             f.write("""#ifndef KSU_COMPAT_H
-        #define KSU_COMPAT_H
-        #define MODULE_IMPORT_NS(ns)
-        #ifndef TWA_RESUME
-        #define TWA_RESUME 1
-        #endif
-        #ifndef fallthrough
-        #define fallthrough do {} while (0)
-        #endif
-        #endif
-        """)
+#define KSU_COMPAT_H
+#ifndef TWA_RESUME
+#define TWA_RESUME 1
+#endif
+#ifndef fallthrough
+#define fallthrough do {} while (0)
+#endif
+#endif
+""")
 
         makefile_path = "drivers/kernelsu/Makefile"
         if os.path.exists(makefile_path):
@@ -92,9 +114,9 @@ jobs:
         else:
             with open(makefile_path, "w") as f:
                 f.write("""ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
-        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-        obj-y += $(_ksu_c_files:.c=.o)
-        """)
+_ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+obj-y += $(_ksu_c_files:.c=.o)
+""")
         print("[+] Compatibility layer and Makefile configured successfully.")
         '
 
