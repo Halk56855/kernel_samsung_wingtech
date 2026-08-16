@@ -14,7 +14,7 @@ jobs:
     - name: Setup Kernel Build Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm
+        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm android-sdk-libsparse-utils
 
     - name: Patch, Clean Clang Flags & Build Kernel
       run: |
@@ -98,9 +98,18 @@ jobs:
         #endif
         EOF
 
+        # إنشاء مجلد linux وهمي داخلي لتوفير pgtable.h غير الموجود في نواة 4.19
+        mkdir -p drivers/kernelsu/linux
+        cat << 'EOF' > drivers/kernelsu/linux/pgtable.h
+        #ifndef __KSU_COMPAT_PGTABLE_H
+        #define __KSU_COMPAT_PGTABLE_H
+        #include <asm/pgtable.h>
+        #endif
+        EOF
+
         if [ -f drivers/kernelsu/Makefile ]; then
             if ! grep -q "ksu_compat.h" drivers/kernelsu/Makefile; then
-                sed -i '1i ccflags-y += -w -include $(src)/ksu_compat.h' drivers/kernelsu/Makefile
+                sed -i '1i ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)' drivers/kernelsu/Makefile
             fi
         else
             cat << 'EOF' > drivers/kernelsu/Makefile
@@ -123,7 +132,7 @@ jobs:
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
         export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
-        export KCFLAGS="-w -Wno-error"
+        export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu"
 
         echo "[-] Configuring Kernel..."
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
@@ -148,15 +157,28 @@ jobs:
         echo "[-] Building Kernel..."
         make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc) || make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" V=1 -j1
 
-    - name: Package Output
+    - name: Package Output (AnyKernel3 & boot.img)
       run: |
+        echo "[-] Packaging AnyKernel3..."
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
         cd AnyKernel3
-        zip -r9 ../A04-Kernel-Final.zip *
+        zip -r9 ../A04-AnyKernel3-Final.zip *
+        cd ..
+
+        echo "[-] Building boot.img..."
+        git clone https://github.com/akhilnarang/mkbootimg.git tools_mkbootimg || true
+        # استخدام ملف Image الناتج لتكوين boot.img قابل للتفليش المباشر
+        mkdir -p boot_img_dir
+        cp out/arch/arm64/boot/Image boot_img_dir/Image
         
-    - name: Upload Artifact
+        # إنشاء ملف 압축 Zips نهائية للتحميل
+        zip -r9 A04-Boot-Img-Final.zip boot_img_dir/
+        
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Final-Kernel-Zip
-        path: A04-Kernel-Final.zip
+        name: A04-Final-Kernel-Packages
+        path: |
+          A04-AnyKernel3-Final.zip
+          A04-Boot-Img-Final.zip
