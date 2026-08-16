@@ -80,7 +80,7 @@ jobs:
         #endif
         EOF
 
-    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux)
+    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux, dispatch)
       run: |
         python3 - << 'EOF'
         import os
@@ -126,6 +126,15 @@ jobs:
                     with open(path, "w") as f:
                         f.write(content)
                     print("Patched selinux.c include path")
+                elif file == "dispatch.c":
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "init_task" in content and "extern struct task_struct init_task;" not in content:
+                        patch = "extern struct task_struct init_task;\nextern rwlock_t tasklist_lock;\n"
+                        content = patch + content
+                        with open(path, "w") as f:
+                            f.write(content)
+                        print("Patched dispatch.c with extern declarations for init_task and tasklist_lock")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
