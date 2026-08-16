@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (filter_count, TWA_RESUME, MODULE_IMPORT_NS)..."
+        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (pgtable.h, filter_count, TWA_RESUME, MODULE_IMPORT_NS)..."
         python3 -c '
         import os, re
 
@@ -67,6 +67,9 @@ jobs:
                         content = re.sub(r"^.*MODULE_IMPORT_NS.*$", "/* [Compat-4.19] MODULE_IMPORT_NS removed */", content, flags=re.MULTILINE)
                         content = content.replace("<linux/seccomp_types.h>", "<linux/seccomp.h>")
                         content = re.sub(r"#include\s*<\s*linux/minmax\.h\s*>", "#include <linux/kernel.h>", content)
+                        
+                        # Fix linux/pgtable.h missing in Kernel 4.19
+                        content = content.replace("<linux/pgtable.h>", "<asm/pgtable.h>")
                         
                         # Handle filter_count safely for Kernel 4.19
                         if "filter_count" in content:
