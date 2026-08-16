@@ -63,7 +63,6 @@ jobs:
             shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
-        # إزالة أسطر MODULE_IMPORT_NS تلقائياً لعدم توافقها مع نواة 4.19
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -85,40 +84,31 @@ jobs:
                                 f.writelines(new_lines)
                     except Exception as e:
                         pass
-
-        compat_h_path = "drivers/kernelsu/ksu_compat.h"
-        with open(compat_h_path, "w") as f:
-            f.write("""#ifndef KSU_COMPAT_H
-#define KSU_COMPAT_H
-#ifndef TWA_RESUME
-#define TWA_RESUME 1
-#endif
-#ifndef fallthrough
-#define fallthrough do {} while (0)
-#endif
-#endif
-""")
-
-        makefile_path = "drivers/kernelsu/Makefile"
-        if os.path.exists(makefile_path):
-            with open(makefile_path, "r") as f:
-                mf_content = f.read()
-            
-            if "ccflags-y" in mf_content:
-                mf_content = mf_content.replace("ccflags-y +=", "ccflags-y += -w -include $(src)/ksu_compat.h")
-            else:
-                mf_content = "ccflags-y += -w -include $(src)/ksu_compat.h\n" + mf_content
-            
-            with open(makefile_path, "w") as f:
-                f.write(mf_content)
-        else:
-            with open(makefile_path, "w") as f:
-                f.write("""ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
-_ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-obj-y += $(_ksu_c_files:.c=.o)
-""")
-        print("[+] Compatibility layer and Makefile configured successfully.")
         '
+
+        cat << 'EOF' > drivers/kernelsu/ksu_compat.h
+        #ifndef KSU_COMPAT_H
+        #define KSU_COMPAT_H
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 1
+        #endif
+        #ifndef fallthrough
+        #define fallthrough do {} while (0)
+        #endif
+        #endif
+        EOF
+
+        if [ -f drivers/kernelsu/Makefile ]; then
+            if ! grep -q "ksu_compat.h" drivers/kernelsu/Makefile; then
+                sed -i '1i ccflags-y += -w -include $(src)/ksu_compat.h' drivers/kernelsu/Makefile
+            fi
+        else
+            cat << 'EOF' > drivers/kernelsu/Makefile
+        ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
+        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+        obj-y += $(_ksu_c_files:.c=.o)
+        EOF
+        fi
 
         echo "[-] Wiring Kconfig..."
         if ! grep -q "kernelsu" drivers/Kconfig; then echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig; fi
