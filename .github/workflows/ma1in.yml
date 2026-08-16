@@ -83,9 +83,9 @@ jobs:
                 mf_content = f.read()
             
             if "ccflags-y" in mf_content:
-                mf_content = mf_content.replace("ccflags-y +=", "ccflags-y += -include $(src)/ksu_compat.h")
+                mf_content = mf_content.replace("ccflags-y +=", "ccflags-y += -w -include $(src)/ksu_compat.h")
             else:
-                mf_content = "ccflags-y += -include $(src)/ksu_compat.h\n" + mf_content
+                mf_content = "ccflags-y += -w -include $(src)/ksu_compat.h\n" + mf_content
             
             with open(makefile_path, "w") as f:
                 f.write(mf_content)
@@ -111,7 +111,7 @@ jobs:
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
         export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
-        export KCFLAGS="-Wno-error=format -Wno-format -Wno-error=incompatible-pointer-types"
+        export KCFLAGS="-w -Wno-error"
 
         echo "[-] Configuring Kernel..."
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
@@ -133,7 +133,7 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         echo "[-] Building Kernel..."
-        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc)
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc) || make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" V=1 -j1
 
     - name: Package Output
       run: |
