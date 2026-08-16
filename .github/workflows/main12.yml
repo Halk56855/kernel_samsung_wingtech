@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech 4.19 (a04)
+name: Build Kernel Samsung Wingtech (a04)
 
 on:
   workflow_dispatch:
@@ -11,9 +11,9 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate KernelSU-Next (Dev) & Proper Wiring
+    - name: Integrate KernelSU-Next (v3.3.0) & Proper Wiring
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.3.0
 
         if [ ! -d "drivers/kernelsu" ]; then
           if [ -d "KernelSU-Next/kernel" ]; then
