@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (handle_inode_event, pgtable.h, filter_count, TWA_RESUME, MODULE_IMPORT_NS)..."
+        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (force_sig, handle_inode_event, pgtable.h, filter_count, TWA_RESUME, MODULE_IMPORT_NS)..."
         python3 -c '
         import os, re
 
@@ -73,6 +73,9 @@ jobs:
                         
                         # Fix fsnotify handle_inode_event for Kernel 4.19
                         content = content.replace("handle_inode_event", "handle_event")
+
+                        # Fix force_sig argument count for Kernel 4.19
+                        content = content.replace("force_sig(SIGKILL)", "force_sig(SIGKILL, current)")
 
                         # Handle filter_count safely for Kernel 4.19
                         if "filter_count" in content:
