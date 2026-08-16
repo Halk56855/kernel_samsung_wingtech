@@ -111,6 +111,7 @@ jobs:
         export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
         export ARCH=arm64
         export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
+        export KCFLAGS="-Wno-error=format -Wno-format -Wno-error=incompatible-pointer-types"
 
         echo "[-] Configuring Kernel..."
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
@@ -132,7 +133,7 @@ jobs:
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
         echo "[-] Building Kernel..."
-        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" -j$(nproc)
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc)
 
     - name: Package Output
       run: |
