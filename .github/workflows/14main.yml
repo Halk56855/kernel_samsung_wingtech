@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech ApexSU (a04)
+name: Build Kernel Samsung Wingtech ApkeSU (a04)
 
 on:
   workflow_dispatch:
@@ -11,49 +11,33 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Clone ApexSU repository
+    - name: Clone ApkeSU repository
       run: |
-        git clone https://github.com/qrjhamron/ApexSU.git ApexSU
+        git clone https://github.com/fixz232/ApkeSU.git ApkeSU
 
-    - name: Patch ApexSU & Linux 4.19 Compatibility (Auto-Fix MODULE_IMPORT_NS & Disable KPM/SuSFS)
+    - name: Clean repository and patch pty.c for KernelSU-Next Legacy
       run: |
+        git checkout drivers/tty/pty.c || true
+        git reset --hard || true
+
         python3 -c '
-        import os
-
-        # 1. Patch pty.c
         path = "drivers/tty/pty.c"
-        if os.path.exists(path):
+        try:
             with open(path, "r") as f:
                 content = f.read()
             if "ksu_handle_devpts" in content:
                 lines = content.splitlines()
-                new_lines = [line if "int ksu_handle_devpts" in line or "ksu_handle_devpts" not in line else "/* " + line + " -- Disabled for KSU */" for line in lines]
+                new_lines = []
+                for line in lines:
+                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
+                        new_lines.append("/* " + line + " -- Disabled for KSU-Next Legacy */")
+                    else:
+                        new_lines.append(line)
                 with open(path, "w") as f:
                     f.write("\n".join(new_lines) + "\n")
-
-        # 2. Automatically remove MODULE_IMPORT_NS across all ApexSU source files for Linux 4.19
-        kernelsu_dir = "drivers/kernelsu"
-        if not os.path.exists(kernelsu_dir) and os.path.exists("ApexSU/kernel"):
-            kernelsu_dir = "ApexSU/kernel"
-
-        if os.path.exists(kernelsu_dir):
-            for root, dirs, files in os.walk(kernelsu_dir):
-                for file in files:
-                    if file.endswith((".c", ".h")):
-                        filepath = os.path.join(root, file)
-                        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                            code = f.read()
-                        if "MODULE_IMPORT_NS" in code:
-                            lines = code.splitlines()
-                            new_code_lines = []
-                            for line in lines:
-                                if "MODULE_IMPORT_NS" in line:
-                                    new_code_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
-                                else:
-                                    new_code_lines.append(line)
-                            with open(filepath, "w", encoding="utf-8") as f:
-                                f.write("\n".join(new_code_lines) + "\n")
-                            print(f"Successfully patched MODULE_IMPORT_NS in {filepath}")
+                print("Successfully patched drivers/tty/pty.c")
+        except Exception as e:
+            print("Error patching pty.c:", e)
         '
 
     - name: Create compatibility header for Linux 4.19 (pgtable.h)
@@ -61,16 +45,19 @@ jobs:
         mkdir -p include/linux
         echo -e "#ifndef _LINUX_PGTABLE_H\n#define _LINUX_PGTABLE_H\n#include <asm/pgtable.h>\n#endif" > include/linux/pgtable.h
 
-    - name: Integrate ApexSU & Proper Wiring
+    - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
       run: |
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s 3.3.0
+
         if [ ! -d "drivers/kernelsu" ]; then
-          if [ -d "ApexSU/kernel" ]; then
-            ln -sf ../ApexSU/kernel drivers/kernelsu
+          if [ -d "KernelSU-Next/kernel" ]; then
+            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
+          elif [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
           fi
         fi
 
         python3 -c '
-        import os
         with open("drivers/Makefile", "r") as f:
             content = f.read()
         if "kernelsu" not in content:
@@ -80,7 +67,6 @@ jobs:
         '
 
         python3 -c '
-        import os
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
         if "drivers/kernelsu/Kconfig" not in content:
@@ -93,83 +79,53 @@ jobs:
                 f.write(content)
         '
 
-    - name: Patch file_wrapper.c for Linux 4.19 compatibility
+    - name: Ultimate Safe Patches for file_wrapper.c and app_profile.c (Linux 4.19 Compatibility)
       run: |
         python3 -c '
-        import os
-        path = "drivers/kernelsu/infra/file_wrapper.c"
-        if os.path.exists(path):
-            try:
-                with open(path, "r") as f:
-                    content = f.read()
+        import re
 
-                def comment_out_function(text, func_name):
-                    idx = text.find(func_name)
-                    while idx != -1:
-                        line_start = text.rfind("\n", 0, idx) + 1
-                        brace_count = 0
-                        end_idx = idx
-                        started = False
-                        for i in range(idx, len(text)):
-                            if text[i] == "{":
-                                brace_count += 1
-                                started = True
-                            elif text[i] == "}":
-                                brace_count -= 1
-                                if started and brace_count == 0:
-                                    end_idx = i + 1
-                                    break
-                        if started:
-                            func_code = text[line_start:end_idx]
-                            commented = "\n".join(["/* " + line + " */" for line in func_code.splitlines()])
-                            text = text[:line_start] + commented + text[end_idx:]
-                        else:
-                            break
-                        idx = text.find(func_name, line_start + len(commented))
-                    return text
+        # 1. Patch file_wrapper.c
+        fw_path = "drivers/kernelsu/infra/file_wrapper.c"
+        try:
+            with open(fw_path, "r") as f:
+                content = f.read()
 
-                if "ksu_wrapper_iopoll" in content:
-                    content = comment_out_function(content, "ksu_wrapper_iopoll")
-                if "ksu_wrapper_remap_file_range" in content:
-                    content = comment_out_function(content, "ksu_wrapper_remap_file_range")
+            content = re.sub(r"\bksu_wrapper_remap_file_range\b[^}]*\}", "/* removed remap for 4.19 */", content, flags=re.DOTALL)
+            content = re.sub(r"\bksu_wrapper_iopoll\b[^}]*\}", "/* removed iopoll for 4.19 */", content, flags=re.DOTALL)
+            content = re.sub(r"\banon_inode_make_secure\b[^}]*\}", "/* removed anon_inode for 4.19 */", content, flags=re.DOTALL)
 
-                idx = content.find("anon_inode_mnt")
-                if idx != -1:
-                    func_start = content.rfind("struct file *", 0, idx)
-                    if func_start == -1:
-                        func_start = content.rfind("void *", 0, idx)
-                    if func_start == -1:
-                        func_start = content.rfind("\n\n", 0, idx) + 2
-                    
-                    brace_count = 0
-                    func_end = idx
-                    started = False
-                    for i in range(idx, len(content)):
-                        if content[i] == "{":
-                            brace_count += 1
-                            started = True
-                        elif content[i] == "}":
-                            brace_count -= 1
-                            if started and brace_count == 0:
-                                func_end = i + 1
-                                break
-                    if started:
-                        stub = "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}"
-                        content = content[:func_start] + stub + content[func_end:]
+            content = content.replace(".iopoll =", "/* .iopoll = */")
+            content = content.replace(".remap_file_range =", "/* .remap_file_range = */")
 
-                lines = content.splitlines()
-                new_lines = []
-                for line in lines:
-                    if ".iopoll" in line or ".remap_file_range" in line or "f_op->iopoll" in line or "f_op->remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
-                        new_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
-                    else:
-                        new_lines.append(line)
+            stubs = """
+            #include <linux/fs.h>
+            #include <linux/err.h>
 
-                with open(path, "w") as f:
-                    f.write("\n".join(new_lines) + "\n")
-                print("Successfully patched file_wrapper.c for Linux 4.19")
-            except Exception as e:
-                print("Note/Error patching file_wrapper.c:", e)
+            struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags) {
+                return ERR_PTR(-EOPNOTSUPP);
+            }
+            """
+            content += "\n" + stubs
+
+            with open(fw_path, "w") as f:
+                f.write(content)
+            print("Successfully patched file_wrapper.c")
+        except Exception as e:
+            print("Error patching file_wrapper.c:", e)
+
+        # 2. Patch app_profile.c for filter_count absence in Linux 4.19
+        ap_path = "drivers/kernelsu/app_profile.c"
+        try:
+            with open(ap_path, "r") as f:
+                ap_content = f.read()
+
+            ap_content = ap_content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); -- Not in Linux 4.19 */")
+
+            with open(ap_path, "w") as f:
+                f.write(ap_content)
+            print("Successfully patched app_profile.c")
+        except Exception as e:
+            print("Error patching app_profile.c:", e)
         '
 
     - name: Install dependencies
@@ -227,8 +183,9 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KSU_KPM=n
         CONFIG_KSU_SUSFS=n
+        # CONFIG_KPM is not set
+        # CONFIG_KSU_KPM is not set
         EOT
 
         make -C $(pwd) $BUILD_ARGS olddefconfig
@@ -242,10 +199,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ApexSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ApexSU-Flashable-Zip
-        path: A04-ApexSU-AnyKernel3.zip
+        name: A04-KernelSU-Next-Flashable-Zip
+        path: A04-KernelSU-Next-AnyKernel3.zip
