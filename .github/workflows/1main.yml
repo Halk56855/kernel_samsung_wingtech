@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate Wild_KSU KernelSU & Ultimate Kernel 4.19 AI Auto-Patch & Clean Sucompat Replacement
+    - name: Integrate Wild_KSU KernelSU & Ultimate Kernel 4.19 Dynamic Makefile & Auto-Patch
       run: |
         echo "[-] Cleaning up old KernelSU remnants..."
         rm -rf drivers/kernelsu
@@ -36,15 +36,15 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating Advanced AI C-Stubs & Clean Sucompat Replacement Script for Kernel 4.19..."
+        echo "[-] Creating Advanced AI Dynamic Makefile & Kernel 4.19 Patch Script..."
         cat << 'EOF' > patch_ksu.py
-        import glob, os
+        import os, glob
 
         kernelsu_dir = 'drivers/kernelsu'
         if not os.path.exists(kernelsu_dir) and os.path.exists('KernelSU/kernel'):
             kernelsu_dir = 'KernelSU/kernel'
 
-        # 0. Fix ksud.c string concatenation error with KERNEL_SU_DOMAIN
+        # 1. Fix ksud.c string concatenation error if it exists
         ksud_path = os.path.join(kernelsu_dir, 'ksud.c')
         if os.path.exists(ksud_path):
             with open(ksud_path, 'r') as f:
@@ -54,7 +54,7 @@ jobs:
             with open(ksud_path, 'w') as f:
                 f.write(code)
 
-        # 1. Create a dedicated robust stubs C implementation file with exact matching signatures
+        # 2. Create robust stubs C implementation file
         stubs_c_path = os.path.join(kernelsu_dir, 'ai_kernel419_stubs.c')
         stubs_c_content = """/* AI Auto-generated Comprehensive C-Stubs for Kernel 4.19 Linker & Signature Resolution */
         #include <linux/types.h>
@@ -80,55 +80,7 @@ jobs:
         with open(stubs_c_path, 'w') as f:
             f.write(stubs_c_content)
 
-        # 2. Add ai_kernel419_stubs.o to KernelSU Makefile
-        ksu_makefile = os.path.join(kernelsu_dir, 'Makefile')
-        if os.path.exists(ksu_makefile):
-            with open(ksu_makefile, 'r') as f:
-                mk_content = f.read()
-            if 'ai_kernel419_stubs.o' not in mk_content:
-                mk_content += '\nobj-y += ai_kernel419_stubs.o\n'
-                with open(ksu_makefile, 'w') as f:
-                    f.write(mk_content)
-
-        # 3. Explicitly disable SuSFS and KPM defaults in Kconfig files
-        for filepath in glob.glob(f'{kernelsu_dir}/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
-            try:
-                with open(filepath, 'r') as f:
-                    content = f.read()
-                modified = False
-                for keyword in ['SUSFS', 'KPM', 'su_sfs']:
-                    if keyword in content:
-                        content = content.replace('default y', 'default n')
-                        modified = True
-                if modified:
-                    with open(filepath, 'w') as f:
-                        f.write(content)
-            except Exception:
-                pass
-
-        # 4. Patch pkg_observer.c for Kernel 4.19 fsnotify compatibility
-        pkg_observer_path = os.path.join(kernelsu_dir, 'pkg_observer.c')
-        if os.path.exists(pkg_observer_path):
-            with open(pkg_observer_path, 'r') as f:
-                content = f.read()
-            if 'handle_inode_event' in content:
-                content = content.replace('handle_inode_event', 'handle_event')
-                with open(pkg_observer_path, 'w') as f:
-                    f.write(content)
-
-        # 5. Fix TWA_RESUME across files
-        for filepath in glob.glob(f'{kernelsu_dir}/**/*.c', recursive=True):
-            try:
-                with open(filepath, 'r') as f:
-                    content = f.read()
-                if 'TWA_RESUME' in content:
-                    content = content.replace('TWA_RESUME', '0')
-                    with open(filepath, 'w') as f:
-                        f.write(content)
-            except Exception:
-                pass
-
-        # 6. Replace sucompat.c entirely with a clean Kernel 4.19 compliant wrapper
+        # 3. Create clean sucompat.c wrapper
         sucompat_path = os.path.join(kernelsu_dir, 'sucompat.c')
         clean_sucompat_content = """/* Clean Kernel 4.19 Compatible sucompat implementation */
         #include <linux/kernel.h>
@@ -154,12 +106,40 @@ jobs:
         """
         with open(sucompat_path, 'w') as f:
             f.write(clean_sucompat_content)
+
+        # 4. Disable SuSFS and KPM defaults in Kconfig files
+        for filepath in glob.glob(f'{kernelsu_dir}/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+                modified = False
+                for keyword in ['SUSFS', 'KPM', 'su_sfs']:
+                    if keyword in content:
+                        content = content.replace('default y', 'default n')
+                        modified = True
+                if modified:
+                    with open(filepath, 'w') as f:
+                        f.write(content)
+            except Exception:
+                pass
+
+        # 5. Dynamically generate Makefile containing ONLY existing .c files in drivers/kernelsu
+        c_files = [f[:-2] for f in os.listdir(kernelsu_dir) if f.endswith('.c') and f != 'ai_kernel419_stubs.c' and f != 'sucompat.c']
+        c_files.append('ai_kernel419_stubs')
+        c_files.append('sucompat')
+
+        makefile_content = "# Auto-generated KernelSU Makefile for Kernel 4.19 Non-GKI\n"
+        for c in sorted(list(set(c_files))):
+            makefile_content += f"obj-y += {c}.o\n"
+
+        with open(os.path.join(kernelsu_dir, 'Makefile'), 'w') as f:
+            f.write(makefile_content)
         EOF
 
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] AI Clean Sucompat Replacement patch applied successfully!"
+        echo "[+] AI Dynamic Makefile & Sucompat patch applied successfully!"
 
     - name: Install build dependencies
       run: |
