@@ -132,6 +132,21 @@ jobs:
                         content = patch + content
                         with open(path, "w") as f:
                             f.write(content)
+                elif file == "selinux_hide.c":
+                    # Fully stub out selinux_hide.c for Kernel 4.19 to prevent missing member errors
+                    with open(path, "w") as f:
+                        f.write('''
+                        #include <linux/kernel.h>
+                        #include <linux/init.h>
+                        #include <linux/types.h>
+
+                        int ksu_selinux_hide_init(void) {
+                            return 0;
+                        }
+
+                        void ksu_selinux_hide_exit(void) {
+                        }
+                        ''')
                 
                 if file.endswith(".c") or file.endswith(".h"):
                     with open(path, "r") as f:
