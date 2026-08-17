@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech (a04)
+name: Build Kernel Samsung Wingtech 3.3.0 (a04)
 
 on:
   workflow_dispatch:
@@ -11,9 +11,34 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate KernelSU-Next (v3.3.0) & Proper Wiring
+    - name: Clean repository and patch pty.c for KernelSU-Next Legacy
       run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.3.0
+        git checkout drivers/tty/pty.c || true
+        git reset --hard || true
+
+        python3 -c '
+        path = "drivers/tty/pty.c"
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            if "ksu_handle_devpts" in content:
+                lines = content.splitlines()
+                new_lines = []
+                for line in lines:
+                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
+                        new_lines.append("/* " + line + " -- Disabled for KSU-Next Legacy */")
+                    else:
+                        new_lines.append(line)
+                with open(path, "w") as f:
+                    f.write("\n".join(new_lines) + "\n")
+                print("Successfully patched drivers/tty/pty.c")
+        except Exception as e:
+            print("Error patching pty.c:", e)
+        '
+
+    - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s 3.3.0
 
         if [ ! -d "drivers/kernelsu" ]; then
           if [ -d "KernelSU-Next/kernel" ]; then
@@ -100,6 +125,7 @@ jobs:
         CONFIG_KPROBES=y
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_KPROBE_HOOKS=y
         EOT
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
