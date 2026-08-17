@@ -75,78 +75,34 @@ jobs:
                 f.write(content)
         '
 
-    - name: Patch file_wrapper.c for Linux 4.19 compatibility
+    - name: Patch file_wrapper.c cleanly for Linux 4.19 compatibility
       run: |
         python3 -c '
+        import re
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
-                content = f.read()
+                code = f.read()
 
-            def comment_out_function(text, func_name):
-                idx = text.find(func_name)
-                while idx != -1:
-                    line_start = text.rfind("\n", 0, idx) + 1
-                    brace_count = 0
-                    end_idx = idx
-                    started = False
-                    for i in range(idx, len(text)):
-                        if text[i] == "{":
-                            brace_count += 1
-                            started = True
-                        elif text[i] == "}":
-                            brace_count -= 1
-                            if started and brace_count == 0:
-                                end_idx = i + 1
-                                break
-                    if started:
-                        func_code = text[line_start:end_idx]
-                        commented = "\n".join(["/* " + line + " */" for line in func_code.splitlines()])
-                        text = text[:line_start] + commented + text[end_idx:]
-                    else:
-                        break
-                    idx = text.find(func_name, line_start + len(commented))
-                return text
+            # Stub out or remove problematic modern wrapper functions
+            code = re.sub(r"static\s+.*?ksu_wrapper_iopoll\s*\(.*?\)\s*\{[^}]*\}", "/* iopoll wrapper disabled for Linux 4.19 */", code, flags=re.DOTALL)
+            code = re.sub(r"static\s+.*?ksu_wrapper_remap_file_range\s*\(.*?\)\s*\{[^}]*\}", "/* remap_file_range wrapper disabled for Linux 4.19 */", code, flags=re.DOTALL)
 
-            content = comment_out_function(content, "ksu_wrapper_iopoll")
-            content = comment_out_function(content, "ksu_wrapper_remap_file_range")
+            # Safely replace designated initializers and function pointer usages to NULL
+            code = re.sub(r"\.\s*iopoll\s*=\s*[^,]+", ".iopoll = NULL", code)
+            code = re.sub(r"\.\s*remap_file_range\s*=\s*[^,]+", ".remap_file_range = NULL", code)
+            code = re.sub(r"f_op\s*->\s*iopoll", "NULL", code)
+            code = re.sub(r"f_op\s*->\s*remap_file_range", "NULL", code)
+            code = code.replace("REMAP_FILE_DEDUP", "0")
 
-            # Patch or stub modern anon_inode functions for Linux 4.19
-            idx = content.find("anon_inode_mnt")
-            if idx != -1:
-                func_start = content.rfind("struct file *", 0, idx)
-                if func_start == -1:
-                    func_start = content.rfind("void *", 0, idx)
-                if func_start == -1:
-                    func_start = content.rfind("\n\n", 0, idx) + 2
-                
-                brace_count = 0
-                func_end = idx
-                started = False
-                for i in range(idx, len(content)):
-                    if content[i] == "{":
-                        brace_count += 1
-                        started = True
-                    elif content[i] == "}":
-                        brace_count -= 1
-                        if started and brace_count == 0:
-                            func_end = i + 1
-                            break
-                if started:
-                    stub = "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}"
-                    content = content[:func_start] + stub + content[func_end:]
-
-            lines = content.splitlines()
-            new_lines = []
-            for line in lines:
-                if ".iopoll" in line or ".remap_file_range" in line or "f_op->iopoll" in line or "f_op->remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
-                    new_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
-                else:
-                    new_lines.append(line)
+            # Stub out modern anon_inode functions if present
+            code = re.sub(r"struct\s+file\s*\*\s*anon_inode_make_secure\s*\(.*?\)\s*\{[^}]*\}", 
+                          "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags) { return ERR_PTR(-EOPNOTSUPP); }", 
+                          code, flags=re.DOTALL)
 
             with open(path, "w") as f:
-                f.write("\n".join(new_lines) + "\n")
-            print("Successfully patched file_wrapper.c for Linux 4.19")
+                f.write(code)
+            print("Successfully patched file_wrapper.c cleanly for Linux 4.19")
         except Exception as e:
             print("Error patching file_wrapper.c:", e)
         '
