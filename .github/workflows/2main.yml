@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (uapi/linux/mount.h, force_sig, handle_inode_event, pgtable.h, filter_count, TWA_RESUME, MODULE_IMPORT_NS)..."
+        echo "[-] Running Advanced Python Patcher for Kernel 4.19 (access_ok, uapi/linux/mount.h, force_sig, handle_inode_event, pgtable.h)..."
         python3 -c '
         import os, re
 
@@ -84,18 +84,37 @@ jobs:
                         if "filter_count" in content:
                             content = re.sub(r".*filter_count.*", "/* [Compat-4.19] filter_count omitted */", content)
 
-                        # Inject TWA_RESUME compatibility definitions if task_work_add or TWA_RESUME is used
-                        if "TWA_RESUME" in content or "task_work_add" in content:
-                            if "#define TWA_RESUME" not in content:
-                                content = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n#ifndef TWA_NONE\n#define TWA_NONE 0\n#endif\n" + content
-
                         if content != orig:
                             open(path, "w", encoding="utf-8").write(content)
                     except:
                         pass
 
-        # 3. Create comprehensive compatibility stubs file compat_419.c
+        # 3. Create comprehensive compatibility header compat_419.h for access_ok and stubs
+        target_dir = "YukiSU/kernel" if os.path.isdir("YukiSU/kernel") else "YukiSU"
+        os.makedirs(target_dir, exist_ok=True)
+        
+        compat_header = """/* [Compat-4.19] Header for Kernel 4.19 Compatibility */
+        #ifndef COMPAT_419_H
+        #define COMPAT_419_H
+
+        #include <linux/uaccess.h>
+
+        #undef access_ok
+        #define access_ok(addr, size) access_ok(0, (unsigned long)(addr), (unsigned long)(size))
+
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 1
+        #endif
+        #ifndef TWA_NONE
+        #define TWA_NONE 0
+        #endif
+
+        #endif
+        """
+        open(os.path.join(target_dir, "compat_419.h"), "w", encoding="utf-8").write(compat_header)
+
         compat_code = """/* [Compat-4.19] Comprehensive Kernel 4.19 Built-in Compatibility Stubs */
+        #include "compat_419.h"
         #include <linux/types.h>
         #include <linux/kernel.h>
         #include <linux/init.h>
@@ -113,12 +132,9 @@ jobs:
         int ksu_allow(char *s, char *t, char *c, char *p) { return 0; }
         void ksu_selinux_hide_dummy(void) {}
         """
-        
-        target_dir = "YukiSU/kernel" if os.path.isdir("YukiSU/kernel") else "YukiSU"
-        os.makedirs(target_dir, exist_ok=True)
         open(os.path.join(target_dir, "compat_419.c"), "w", encoding="utf-8").write(compat_code)
 
-        # 4. Add compat_419.o to Makefiles
+        # 4. Add compat_419.o and include compat_419.h globally to Makefiles
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file == "Makefile":
@@ -126,6 +142,7 @@ jobs:
                     content = open(path, "r", encoding="utf-8", errors="ignore").read()
                     if "compat_419.o" not in content:
                         content += "\nobj-y += compat_419.o\n"
+                        content += "\nccflags-y += -include drivers/kernelsu/compat_419.h\n"
                         open(path, "w", encoding="utf-8").write(content)
         '
         
