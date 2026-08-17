@@ -35,7 +35,6 @@ jobs:
                             content = content.replace("-Wno-default-const-init-field-unsafe", "")
                             with open(fp, "w") as f:
                                 f.write(content)
-                            print(f"[+] Cleaned flags in {fp}")
                     except Exception as e:
                         pass
         '
@@ -57,13 +56,10 @@ jobs:
         if not ksu_src:
             raise Exception("Kconfig not found in SukiSU-Ultra clone!")
 
-        print(f"[+] Found KSU source at: {ksu_src}")
-
         if os.path.exists("drivers/kernelsu"):
             shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
-        # إزالة أسطر MODULE_IMPORT_NS تلقائياً
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -71,7 +67,6 @@ jobs:
                     try:
                         with open(fp, "r", errors="ignore") as f:
                             lines = f.readlines()
-                        
                         modified = False
                         new_lines = []
                         for line in lines:
@@ -79,41 +74,37 @@ jobs:
                                 modified = True
                                 continue
                             new_lines.append(line)
-                        
                         if modified:
                             with open(fp, "w") as f:
                                 f.writelines(new_lines)
                     except Exception as e:
                         pass
-
-        # استبدال ملف file_wrapper.c بنسخة متوافقة تماماً مع نواة 4.19 لتجنب أخطاء البنيات القديمة
-        fw_path = "drivers/kernelsu/infra/file_wrapper.c"
-        if os.path.exists(fw_path):
-            with open(fw_path, "w") as f:
-                f.write("""
-#include <linux/fs.h>
-#include <linux/file.h>
-#include <linux/slab.h>
-
-struct ksu_file_wrapper {
-    struct file *orig_file;
-};
-
-void *ksu_alloc_file_wrapper(struct file *filp) {
-    struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
-    if (!wrap) return NULL;
-    wrap->orig_file = filp;
-    return wrap;
-}
-
-void ksu_release_file_wrapper(void *data) {
-    if (data) {
-        kfree(data);
-    }
-}
-""")
-            print("[+] file_wrapper.c replaced with 4.19 compatible stub successfully.")
         '
+
+        echo "[-] Writing 4.19 compatible file_wrapper.c stub..."
+        mkdir -p drivers/kernelsu/infra
+        cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
+        #include <linux/fs.h>
+        #include <linux/file.h>
+        #include <linux/slab.h>
+
+        struct ksu_file_wrapper {
+            struct file *orig_file;
+        };
+
+        void *ksu_alloc_file_wrapper(struct file *filp) {
+            struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
+            if (!wrap) return NULL;
+            wrap->orig_file = filp;
+            return wrap;
+        }
+
+        void ksu_release_file_wrapper(void *data) {
+            if (data) {
+                kfree(data);
+            }
+        }
+        EOF
 
         cat << 'EOF' > drivers/kernelsu/ksu_compat.h
         #ifndef KSU_COMPAT_H
@@ -127,7 +118,6 @@ void ksu_release_file_wrapper(void *data) {
         #endif
         EOF
 
-        # إنشاء مجلد linux وهمي داخلي لتوفير pgtable.h غير الموجود في نواة 4.19
         mkdir -p drivers/kernelsu/linux
         cat << 'EOF' > drivers/kernelsu/linux/pgtable.h
         #ifndef __KSU_COMPAT_PGTABLE_H
