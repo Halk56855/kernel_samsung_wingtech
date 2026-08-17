@@ -79,28 +79,32 @@ jobs:
                 f.write(content)
         '
 
-    - name: Robustly Patch file_wrapper.c for Linux 4.19 compatibility (Disable KPM & SuSFS)
+    - name: Ultimate Safe Patch for file_wrapper.c (Fixing 4.19 Syntax & Remap Errors)
       run: |
         python3 -c '
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
-                lines = f.readlines()
-            
+                content = f.read()
+
+            lines = content.splitlines()
             new_lines = []
+            
             for line in lines:
-                if any(keyword in line for keyword in [".iopoll", ".remap_file_range", "f_op->iopoll", "f_op->remap_file_range", "REMAP_FILE_DEDUP"]):
-                    new_lines.append("    /* " + line.strip() + " -- Disabled for Linux 4.19 */\n")
-                elif "anon_inode_make_secure" in line and "struct file *" in line:
-                    new_lines.append("struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}\n")
+                if "ksu_wrapper_remap_file_range" in line or "ksu_wrapper_iopoll" in line or "anon_inode_make_secure" in line:
+                    new_lines.append("/* " + line + " -- Stubbed/Disabled for Linux 4.19 */")
+                elif any(kw in line for kw in [".iopoll", ".remap_file_range", "f_op->iopoll", "f_op->remap_file_range", "REMAP_FILE_DEDUP"]):
+                    new_lines.append("/* " + line.strip() + " -- Disabled */")
                 else:
                     new_lines.append(line)
-                    
+
+            new_lines.append("\nstruct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags) {\n\treturn ERR_PTR(-EOPNOTSUPP);\n}\n")
+
             with open(path, "w") as f:
-                f.writelines(new_lines)
-            print("Successfully patched file_wrapper.c safely for Linux 4.19")
+                f.write("\n".join(new_lines) + "\n")
+            print("Successfully applied ultimate safe patch to file_wrapper.c")
         except Exception as e:
-            print("Error patching file_wrapper.c:", e)
+            print("Error in ultimate safe patch:", e)
         '
 
     - name: Install dependencies
