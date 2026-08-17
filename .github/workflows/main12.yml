@@ -111,6 +111,31 @@ jobs:
             content = comment_out_function(content, "ksu_wrapper_iopoll")
             content = comment_out_function(content, "ksu_wrapper_remap_file_range")
 
+            # Patch or stub modern anon_inode functions for Linux 4.19
+            idx = content.find("anon_inode_mnt")
+            if idx != -1:
+                func_start = content.rfind("struct file *", 0, idx)
+                if func_start == -1:
+                    func_start = content.rfind("void *", 0, idx)
+                if func_start == -1:
+                    func_start = content.rfind("\n\n", 0, idx) + 2
+                
+                brace_count = 0
+                func_end = idx
+                started = False
+                for i in range(idx, len(content)):
+                    if content[i] == "{":
+                        brace_count += 1
+                        started = True
+                    elif content[i] == "}":
+                        brace_count -= 1
+                        if started and brace_count == 0:
+                            func_end = i + 1
+                            break
+                if started:
+                    stub = "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}"
+                    content = content[:func_start] + stub + content[func_end:]
+
             lines = content.splitlines()
             new_lines = []
             for line in lines:
