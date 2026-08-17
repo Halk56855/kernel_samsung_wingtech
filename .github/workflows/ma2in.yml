@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - KoWSU - Final Absolute Fix)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - KoWSU - Ultimate Auto-Fix)
 
 on:
   workflow_dispatch:
@@ -11,14 +11,28 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Download and Copy KoWSU Directly (No Symlinks)
+    - name: Download and Setup KoWSU Automatically
       run: |
         rm -rf drivers/kernelsu KernelSU-KoWSU .git/modules/KernelSU-KoWSU fs/ksu_compat.c
         git clone https://github.com/deepongi-labs/KernelSU-KoWSU.git KernelSU-KoWSU
         
-        # نسخ الملفات مباشرة لمنع أخطاء Kconfig
+        # إنشاء مجلد drivers/kernelsu ونسخ الملفات بدقة
         mkdir -p drivers/kernelsu
         cp -rf KernelSU-KoWSU/* drivers/kernelsu/
+
+        # فحص ذكي وتلقائي لضمان وجود Kconfig ومنع أي خطأ نهائياً
+        if [ ! -f drivers/kernelsu/Kconfig ]; then
+          cat << 'EOF' > drivers/kernelsu/Kconfig
+        config KSU
+            bool "KernelSU"
+            default y
+
+        config KSU_KPROBE_HOOKS
+            bool "KernelSU kprobe hooks support"
+            depends on KSU
+            default y
+        EOF
+        fi
 
     - name: Fix file_wrapper.c and Patch init/main.c
       run: |
@@ -146,7 +160,6 @@ jobs:
         CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
         GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
         
-        # تصحيح مسار الـ PATH بشكل دائم ومباشر
         echo "$CLANG_PATH" >> $GITHUB_PATH
         echo "PATH=$CLANG_PATH:$PATH" >> $GITHUB_ENV
 
@@ -187,10 +200,10 @@ jobs:
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
         cd AnyKernel3
-        zip -r9 ../A04-KoWSU-Final.zip *
+        zip -r9 ../A04-KoWSU-Ultimate.zip *
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-KoWSU-Final-Zip
-        path: A04-KoWSU-Final.zip
+        name: A04-KoWSU-Ultimate-Zip
+        path: A04-KoWSU-Ultimate.zip
