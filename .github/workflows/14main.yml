@@ -33,7 +33,6 @@ jobs:
 
         # 2. Automatically remove MODULE_IMPORT_NS across all ApexSU source files for Linux 4.19
         kernelsu_dir = "drivers/kernelsu"
-        # If drivers/kernelsu is not linked yet, check ApexSU/kernel
         if not os.path.exists(kernelsu_dir) and os.path.exists("ApexSU/kernel"):
             kernelsu_dir = "ApexSU/kernel"
 
@@ -71,6 +70,7 @@ jobs:
         fi
 
         python3 -c '
+        import os
         with open("drivers/Makefile", "r") as f:
             content = f.read()
         if "kernelsu" not in content:
@@ -80,6 +80,7 @@ jobs:
         '
 
         python3 -c '
+        import os
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
         if "drivers/kernelsu/Kconfig" not in content:
@@ -95,6 +96,7 @@ jobs:
     - name: Patch file_wrapper.c for Linux 4.19 compatibility
       run: |
         python3 -c '
+        import os
         path = "drivers/kernelsu/infra/file_wrapper.c"
         if os.path.exists(path):
             try:
