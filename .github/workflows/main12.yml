@@ -15,8 +15,7 @@ jobs:
       run: |
         git checkout drivers/tty/pty.c || true
         git reset --hard || true
-
-        python3 -c '
+        python3 - << 'EOF'
         path = "drivers/tty/pty.c"
         try:
             with open(path, "r") as f:
@@ -34,7 +33,7 @@ jobs:
                 print("Successfully patched drivers/tty/pty.c")
         except Exception as e:
             print("Error patching pty.c:", e)
-        '
+        EOF
 
     - name: Create compatibility header for Linux 4.19 (pgtable.h)
       run: |
@@ -53,16 +52,16 @@ jobs:
           fi
         fi
 
-        python3 -c '
+        python3 - << 'EOF'
         with open("drivers/Makefile", "r") as f:
             content = f.read()
         if "kernelsu" not in content:
             content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
             with open("drivers/Makefile", "w") as f:
                 f.write(content)
-        '
+        EOF
 
-        python3 -c '
+        python3 - << 'EOF'
         with open("drivers/Kconfig", "r") as f:
             content = f.read()
         if "drivers/kernelsu/Kconfig" not in content:
@@ -73,41 +72,27 @@ jobs:
                 content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
             with open("drivers/Kconfig", "w") as f:
                 f.write(content)
-        '
+        EOF
 
-    - name: Bulletproof Fix for file_wrapper.c on Linux 4.19
+    - name: Fix file_wrapper.c compatibility for Linux 4.19
       run: |
-        python3 -c '
+        python3 - << 'EOF'
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
                 code = f.read()
-
-            # Instead of complex regex hacks, wrap file_wrapper implementation safely or disable advanced features for 4.19
-            # We will rewrite file_wrapper.c or add proper definitions so that 4.19 builds successfully.
-            # Let us cleanly inject the compatibility macros right after standard includes.
-            include_pos = code.find("#include")
-            if include_pos != -1:
-                # Find end of includes
-                last_inc = code.rfind("#include")
-                end_inc = code.find("\n", last_inc)
-                
-                compat_snippet = """
-#include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
-#ifndef Generated_Compat_419
-#define Generated_Compat_419
-#endif
-#endif
-"""
-                code = code[:end_inc] + compat_snippet + code[end_inc:]
+            
+            # Disable incompatible file operations for Linux 4.19 cleanly
+            code = code.replace("p->ops.iopoll", "/* p->ops.iopoll */ (void")
+            code = code.replace("p->ops.remap_file_range", "/* p->ops.remap_file_range */ (void")
+            code = code.replace("REMAP_FILE_DEDUP", "0")
 
             with open(path, "w") as f:
                 f.write(code)
-            print("Successfully injected compatibility markers into file_wrapper.c")
+            print("Successfully patched file_wrapper.c for Linux 4.19")
         except Exception as e:
-            print("Error in bulletproof fix:", e)
-        '
+            print("Error patching file_wrapper.c:", e)
+        EOF
 
     - name: Install dependencies
       run: |
