@@ -60,7 +60,26 @@ jobs:
                 with open(ksud_path, 'w') as f:
                     f.write(code)
 
-        # 2. Fix TWA_RESUME and fsnotify handle_inode_event incompatibilities across all source files
+        # 2. Fix EXPECTED_MANAGER_SIZE and EXPECTED_MANAGER_HASH in apk_sign.c
+        for root, dirs, files in os.walk(kernelsu_dir, followlinks=True):
+            if 'apk_sign.c' in files:
+                apk_sign_path = os.path.join(root, 'apk_sign.c')
+                with open(apk_sign_path, 'r') as f:
+                    code = f.read()
+                manager_definitions = """
+                #ifndef EXPECTED_MANAGER_SIZE
+                #define EXPECTED_MANAGER_SIZE 0x381
+                #endif
+                #ifndef EXPECTED_MANAGER_HASH
+                #define EXPECTED_MANAGER_HASH "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4"
+                #endif
+                """
+                if 'EXPECTED_MANAGER_SIZE' not in code:
+                    code = manager_definitions + code
+                    with open(apk_sign_path, 'w') as f:
+                        f.write(code)
+
+        # 3. Fix TWA_RESUME and fsnotify handle_inode_event incompatibilities across all source files
         for root, dirs, files in os.walk(kernelsu_dir, followlinks=True):
             for file in files:
                 if file.endswith(('.c', '.h')):
@@ -81,7 +100,7 @@ jobs:
                     except Exception:
                         pass
 
-        # 3. Create robust stubs C implementation file for Kernel 4.19
+        # 4. Create robust stubs C implementation file for Kernel 4.19
         stubs_c_path = os.path.join(kernelsu_dir, 'ai_kernel419_stubs.c')
         stubs_c_content = """/* AI Auto-generated Comprehensive C-Stubs for Kernel 4.19 Linker & Signature Resolution */
         #include <linux/types.h>
@@ -111,7 +130,7 @@ jobs:
         with open(stubs_c_path, 'w') as f:
             f.write(stubs_c_content)
 
-        # 4. Create clean sucompat.c wrapper for Kernel 4.19
+        # 5. Create clean sucompat.c wrapper for Kernel 4.19
         sucompat_path = os.path.join(kernelsu_dir, 'sucompat.c')
         clean_sucompat_content = """/* Clean Kernel 4.19 Compatible sucompat implementation */
         #include <linux/kernel.h>
@@ -140,7 +159,7 @@ jobs:
         with open(sucompat_path, 'w') as f:
             f.write(clean_sucompat_content)
 
-        # 5. Provide a 100% compatible pkg_observer.c stub for Kernel 4.19 fsnotify API
+        # 6. Provide a 100% compatible pkg_observer.c stub for Kernel 4.19 fsnotify API
         pkg_observer_path = os.path.join(kernelsu_dir, 'pkg_observer.c')
         clean_pkg_observer = """/* Clean Kernel 4.19 Compatible pkg_observer implementation */
         #include <linux/kernel.h>
@@ -158,7 +177,7 @@ jobs:
         with open(pkg_observer_path, 'w') as f:
             f.write(clean_pkg_observer)
 
-        # 6. Ensure setuid_hook.c exists as a safe stub to prevent missing target errors
+        # 7. Ensure setuid_hook.c exists as a safe stub to prevent missing target errors
         setuid_hook_path = os.path.join(kernelsu_dir, 'setuid_hook.c')
         if not os.path.exists(setuid_hook_path):
             with open(setuid_hook_path, 'w') as f:
@@ -170,7 +189,7 @@ jobs:
                 void ksu_setuid_exit(void) {}
                 """)
 
-        # 7. Disable SuSFS and KPM defaults in Kconfig files
+        # 8. Disable SuSFS and KPM defaults in Kconfig files
         for root, dirs, files in os.walk('KernelSU', followlinks=True):
             for file in files:
                 if file == 'Kconfig':
@@ -189,7 +208,7 @@ jobs:
                     except Exception:
                         pass
 
-        # 8. Dynamically generate a 100% accurate Makefile based on existing .c files
+        # 9. Dynamically generate a 100% accurate Makefile based on existing .c files
         c_files_list = []
         for f in os.listdir(kernelsu_dir):
             if f.endswith('.c') and f != 'ai_kernel419_stubs.c' and f != 'sucompat.c' and f != 'pkg_observer.c' and f != 'setuid_hook.c':
