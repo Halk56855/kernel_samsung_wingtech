@@ -31,7 +31,7 @@ jobs:
           rm -rf drivers/kernelsu SukiSU-Ultra
           git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
           
-          # نسخ السورس بالكامل أو المجلد الجذر الصحيح لضمان وجود مجلدات uapi و include داخله
+          # استخراج وتثبيت سورس SukiSU-Ultra بالكامل في مكانة الصحيح
           if [ -d "SukiSU-Ultra/kernel" ]; then
               cp -r SukiSU-Ultra/kernel drivers/kernelsu
           elif [ -d "SukiSU-Ultra/drivers/kernelsu" ]; then
@@ -40,17 +40,24 @@ jobs:
               cp -r SukiSU-Ultra drivers/kernelsu
           fi
           
-          # إزالة MODULE_IMPORT_NS لمنع أخطاء التوافق مع 4.19
+          # إزالة MODULE_IMPORT_NS للتوافق مع نواة 4.19
           find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-      - name: Create Compatibility Layers, Missing Headers and Stubs
+      - name: Fix and Mirror All UAPI Headers Automatically
         run: |
           mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi
           
-          # البحث النسخي عن أي ملفات هيدر ناقصة وتوفيرها في مكانها الصحيح
-          find SukiSU-Ultra -name "app_profile.h" -exec cp {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
-          find SukiSU-Ultra -name "app_profile.h" -exec cp {} drivers/kernelsu/ \; 2>/dev/null || true
+          # البحث عن جميع ملفات الهيدر ونسخها وربطها تلقائياً لتجنب أي خطأ مفقود (feature.h, app_profile.h الخ)
+          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
+          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/ \; 2>/dev/null || true
           
+          if [ -d "drivers/kernelsu/include/uapi" ]; then
+              cp -r drivers/kernelsu/include/uapi/* drivers/kernelsu/uapi/ 2>/dev/null || true
+          fi
+          if [ -d "drivers/kernelsu/uapi" ]; then
+              cp -r drivers/kernelsu/uapi/* drivers/kernelsu/ 2>/dev/null || true
+          fi
+
           cat << 'EOF' > drivers/kernelsu/ksu_compat.h
           #ifndef KSU_COMPAT_H
           #define KSU_COMPAT_H
@@ -101,7 +108,7 @@ jobs:
           }
           EOF
 
-          # ضبط مسارات الـ include في Makefile الخاص بـ kernelsu ليشمل كافة المسارات الفرعية
+          # تحديث الـ Makefile ليشمل جميع المسارات الفرعية للبحث عن الهيدرات تلقائياً
           cat << 'EOF' > drivers/kernelsu/Makefile
           ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi
           _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
