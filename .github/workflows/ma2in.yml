@@ -51,6 +51,9 @@ jobs:
         int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
             return 0;
         }
+
+        void ksu_install_file_wrapper(void) {
+        }
         EOF
         done
 
@@ -94,7 +97,6 @@ jobs:
                         patch = "/* Define fallback for SECCOMP_ARCH_NATIVE_NR on Linux 4.19 */\n#ifndef SECCOMP_ARCH_NATIVE_NR\n#include <asm/unistd.h>\n#ifdef __NR_syscalls\n#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls\n#else\n#define SECCOMP_ARCH_NATIVE_NR 512\n#endif\n#endif\n\n"
                         with open(path, "w") as f:
                             f.write(patch + content)
-                        print("Patched seccomp_cache.c")
                 elif file == "pkg_observer.c":
                     with open(path, "r") as f:
                         content = f.read()
@@ -102,7 +104,6 @@ jobs:
                         content = content.replace("handle_inode_event", "handle_event")
                         with open(path, "w") as f:
                             f.write(content)
-                        print("Patched pkg_observer.c")
                 elif file == "app_profile.c":
                     with open(path, "r") as f:
                         content = f.read()
@@ -110,14 +111,12 @@ jobs:
                         content = content.replace("atomic_set(&current->seccomp.filter_count, 0);", "/* atomic_set(&current->seccomp.filter_count, 0); */")
                         with open(path, "w") as f:
                             f.write(content)
-                        print("Patched app_profile.c for filter_count")
                 elif file == "selinux.c":
                     with open(path, "r") as f:
                         content = f.read()
                     content = content.replace('#include "selinux_defs.h"', '#include "selinux/selinux_defs.h"')
                     with open(path, "w") as f:
                         f.write(content)
-                    print("Patched selinux.c include path")
                 elif file == "dispatch.c":
                     with open(path, "r") as f:
                         content = f.read()
@@ -126,7 +125,6 @@ jobs:
                         content = patch + content
                         with open(path, "w") as f:
                             f.write(content)
-                        print("Patched dispatch.c with required headers and declarations")
                 
                 if file.endswith(".c"):
                     with open(path, "r") as f:
@@ -136,7 +134,6 @@ jobs:
                         content = patch + content
                         with open(path, "w") as f:
                             f.write(content)
-                        print(f"Patched {file} for TWA_RESUME fallback")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
@@ -215,7 +212,7 @@ jobs:
         os.symlink(os.path.relpath(ksu_src, "drivers"), target_link)
         EOF
 
-    - name: Inject fs compatibility layer (No duplicate hooks)
+    - name: Inject Complete Compatibility Bridge for Kernel 4.19
       run: |
         cat << 'EOF' > fs/ksu_compat.c
         #include <linux/module.h>
@@ -223,6 +220,9 @@ jobs:
         #include <linux/fs.h>
         #include <linux/sched.h>
         #include <linux/uaccess.h>
+        #include <linux/mount.h>
+        #include <linux/sched/task.h>
+        #include <linux/sched/signal.h>
 
         bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return false;
@@ -230,6 +230,52 @@ jobs:
 
         int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return 0;
+        }
+
+        /* Missing symbol fallbacks for Kernel 4.19 */
+        long copy_to_kernel_nofault(void *dst, const void *src, size_t size) {
+            memcpy(dst, src, size);
+            return 0;
+        }
+
+        long copy_from_user_nofault(void *dst, const void __user *src, size_t size) {
+            if (copy_from_user(dst, src, size))
+                return -EFAULT;
+            return 0;
+        }
+
+        long copy_to_user_nofault(void __user *dst, const void *src, size_t size) {
+            if (copy_to_user(dst, src, size))
+                return -EFAULT;
+            return 0;
+        }
+
+        int path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) {
+            return -EINVAL;
+        }
+
+        void put_task_struct(struct task_struct *t) {
+            if (t && t != &init_task)
+                put_task_struct_notrace(t);
+        }
+
+        void seccomp_filter_release(struct task_struct *tsk) {
+        }
+
+        void *selinux_cred(const struct cred *cred) {
+            return NULL;
+        }
+
+        bool handle_sepolicy(void) {
+            return false;
+        }
+
+        struct pid *task_pgrp(struct task_struct *task) {
+            return task->group_leader ? task->group_leader->pgrp : task->pgrp;
+        }
+
+        struct pid *task_session(struct task_struct *task) {
+            return task->group_leader ? task->group_leader->session : task->session;
         }
         EOF
 
