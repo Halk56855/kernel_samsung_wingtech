@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (Smart access_ok Overload, TWA_RESUME, etc.)..."
+        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (Direct access_ok to __range_ok replacement)..."
         python3 -c '
         import os, re
 
@@ -54,7 +54,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Aggressively fix code compatibility and inject smart macros for Kernel 4.19
+        # 2. Aggressively fix code compatibility and direct translation for Kernel 4.19
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -84,7 +84,12 @@ jobs:
                         if "filter_count" in content:
                             content = re.sub(r".*filter_count.*", "/* [Compat-4.19] filter_count omitted */", content)
 
-                        # Smart Overloaded access_ok and TWA definitions
+                        # Directly translate access_ok(addr, size) calls to __range_ok((unsigned long)(addr), (unsigned long)(size))
+                        # This avoids all macro redefinition errors on Kernel 4.19
+                        content = re.sub(r"access_ok\s*\(\s*([^,\(\)]+),\s*([^,\(\)]+)\s*\)", r"__range_ok((unsigned long)(\1), (unsigned long)(\2))", content)
+                        content = re.sub(r"access_ok\s*\(\s*([^,\(\)]+\s*\([^,\(\)]*\)[^,\(\)]*),\s*([^,\(\)]+)\s*\)", r"__range_ok((unsigned long)(\1), (unsigned long)(\2))", content)
+
+                        # Inject TWA definitions
                         compat_injection = """
                         #ifndef COMPAT_419_FULL_H
                         #define COMPAT_419_FULL_H
@@ -94,13 +99,6 @@ jobs:
                         #ifndef TWA_NONE
                         #define TWA_NONE 0
                         #endif
-                        #ifdef access_ok
-                        #undef access_ok
-                        #endif
-                        #define __access_ok_2(addr, size) __range_ok((unsigned long)(addr), (unsigned long)(size))
-                        #define __access_ok_3(type, addr, size) __range_ok(addr, size)
-                        #define _ACCESSOK_SEL(_1, _2, _3, F, ...) F
-                        #define access_ok(...) _ACCESSOK_SEL(__VA_ARGS__, __access_ok_3, __access_ok_2, __access_ok_2)(__VA_ARGS__)
                         #endif
                         """
                         
