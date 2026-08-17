@@ -31,7 +31,6 @@ jobs:
           rm -rf drivers/kernelsu SukiSU-Ultra
           git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
           
-          # استخراج وتثبيت سورس SukiSU-Ultra بالكامل في مكانة الصحيح
           if [ -d "SukiSU-Ultra/kernel" ]; then
               cp -r SukiSU-Ultra/kernel drivers/kernelsu
           elif [ -d "SukiSU-Ultra/drivers/kernelsu" ]; then
@@ -40,14 +39,22 @@ jobs:
               cp -r SukiSU-Ultra drivers/kernelsu
           fi
           
-          # إزالة MODULE_IMPORT_NS للتوافق مع نواة 4.19
           find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-      - name: Fix and Mirror All UAPI Headers Automatically
+      - name: Fix and Mirror All UAPI Headers and C++ Includes
         run: |
           mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi
           
-          # البحث عن جميع ملفات الهيدر ونسخها وربطها تلقائياً لتجنب أي خطأ مفقود (feature.h, app_profile.h الخ)
+          # توفير محاكي مكتبة C++ cstdint لكي يفهمها مترجم الـ C في النواة
+          cat << 'EOF' > drivers/kernelsu/cstdint
+          #ifndef __KSU_CSTDINT_H
+          #define __KSU_CSTDINT_H
+          #include <linux/types.h>
+          #include <stdint.h>
+          #endif
+          EOF
+
+          # نسخ أو ربط ملفات الهيدر تلقائياً
           find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
           find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/ \; 2>/dev/null || true
           
@@ -108,7 +115,6 @@ jobs:
           }
           EOF
 
-          # تحديث الـ Makefile ليشمل جميع المسارات الفرعية للبحث عن الهيدرات تلقائياً
           cat << 'EOF' > drivers/kernelsu/Makefile
           ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi
           _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
