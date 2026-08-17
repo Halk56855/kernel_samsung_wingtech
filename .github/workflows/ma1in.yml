@@ -16,10 +16,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm android-sdk-libsparse-utils
 
-    - name: Patch Makefiles for Clang Flags
+    - name: Full Setup and Build Kernel
       run: |
-        python3 -c '
+        cat << 'EOF' > setup_ksu.py
         import os
+        import shutil
+
+        print("[-] Cleaning Clang flags...")
         for root, dirs, files in os.walk("."):
             if "out" in root or ".git" in root:
                 continue
@@ -36,26 +39,26 @@ jobs:
                                 f.write(content)
                     except Exception:
                         pass
-        '
 
-    - name: Clone and Setup SukiSU-Ultra
-      run: |
-        python3 -c '
-        import os, shutil
+        print("[-] Cloning SukiSU-Ultra...")
         if os.path.exists("drivers/kernelsu"):
             shutil.rmtree("drivers/kernelsu")
         if os.path.exists("SukiSU-Ultra"):
             shutil.rmtree("SukiSU-Ultra")
         os.system("git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra")
+
         ksu_src = None
         for root, dirs, files in os.walk("SukiSU-Ultra"):
             if "Kconfig" in files:
                 ksu_src = root
                 break
+
         if not ksu_src:
             raise Exception("Kconfig not found in SukiSU-Ultra clone!")
+
         shutil.copytree(ksu_src, "drivers/kernelsu")
-        
+
+        print("[-] Removing MODULE_IMPORT_NS...")
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -68,12 +71,8 @@ jobs:
                             f.writelines(new_lines)
                     except Exception:
                         pass
-        '
 
-    - name: Create Compatibility Layers
-      run: |
-        python3 -c '
-        import os
+        print("[-] Creating Compatibility Layers...")
         os.makedirs("drivers/kernelsu/linux", exist_ok=True)
         with open("drivers/kernelsu/ksu_compat.h", "w") as f:
             f.write("""#ifndef KSU_COMPAT_H
@@ -131,26 +130,24 @@ void ksu_release_file_wrapper(void *data) {
 _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
 obj-y += $(_ksu_c_files:.c=.o)
 """)
-        '
 
-    - name: Wire Kconfig and Makefile
-      run: |
-        python3 -c '
+        print("[-] Wiring Kconfig and Makefile...")
         with open("drivers/Kconfig", "r") as f:
             kconfig_content = f.read()
         if "kernelsu" not in kconfig_content:
             with open("drivers/Kconfig", "a") as f:
-                f.write("\nsource \"drivers/kernelsu/Kconfig\"\n")
+                f.write('\nsource "drivers/kernelsu/Kconfig"\n')
 
         with open("drivers/Makefile", "r") as f:
             drv_make_content = f.read()
         if "kernelsu" not in drv_make_content:
             with open("drivers/Makefile", "a") as f:
-                f.write("\nobj-y += kernelsu/\n")
-        '
+                f.write('\nobj-y += kernelsu/\n')
+        EOF
 
-    - name: Setup Toolchain and Build Kernel
-      run: |
+        python3 setup_ksu.py
+
+        echo "[-] Setting up Toolchains..."
         mkdir -p toolchain/gcc toolchain/clang
         wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
         tar -xf gcc.tar.xz -C toolchain/gcc
