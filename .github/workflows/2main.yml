@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (TWA_RESUME direct injection, access_ok, force_sig, etc.)..."
+        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (Smart access_ok Overload, TWA_RESUME, etc.)..."
         python3 -c '
         import os, re
 
@@ -54,7 +54,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Aggressively fix code compatibility and directly inject compat macros for Kernel 4.19
+        # 2. Aggressively fix code compatibility and inject smart macros for Kernel 4.19
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -84,7 +84,7 @@ jobs:
                         if "filter_count" in content:
                             content = re.sub(r".*filter_count.*", "/* [Compat-4.19] filter_count omitted */", content)
 
-                        # Direct injection of compatibility definitions (TWA_RESUME, access_ok fix) at the top of every file
+                        # Smart Overloaded access_ok and TWA definitions
                         compat_injection = """
                         #ifndef COMPAT_419_FULL_H
                         #define COMPAT_419_FULL_H
@@ -97,7 +97,10 @@ jobs:
                         #ifdef access_ok
                         #undef access_ok
                         #endif
-                        #define access_ok(addr, size) access_ok(0, (unsigned long)(addr), (unsigned long)(size))
+                        #define __access_ok_2(addr, size) __range_ok((unsigned long)(addr), (unsigned long)(size))
+                        #define __access_ok_3(type, addr, size) __range_ok(addr, size)
+                        #define _ACCESSOK_SEL(_1, _2, _3, F, ...) F
+                        #define access_ok(...) _ACCESSOK_SEL(__VA_ARGS__, __access_ok_3, __access_ok_2, __access_ok_2)(__VA_ARGS__)
                         #endif
                         """
                         
