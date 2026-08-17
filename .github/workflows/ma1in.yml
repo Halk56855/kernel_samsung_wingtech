@@ -63,6 +63,7 @@ jobs:
             shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
+        # إزالة أسطر MODULE_IMPORT_NS تلقائياً
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -84,6 +85,21 @@ jobs:
                                 f.writelines(new_lines)
                     except Exception as e:
                         pass
+
+        # التعليق التلقائي على حقول iopoll و remap_file_range غير المتوافقة مع نواة 4.19
+        fw_path = "drivers/kernelsu/infra/file_wrapper.c"
+        if os.path.exists(fw_path):
+            with open(fw_path, "r") as f:
+                fw_lines = f.readlines()
+            fw_new_lines = []
+            for line in fw_lines:
+                if "remap_file_range" in line or "iopoll" in line:
+                    fw_new_lines.append("// [KSU 4.19 Compat] " + line)
+                else:
+                    fw_new_lines.append(line)
+            with open(fw_path, "w") as f:
+                f.writelines(fw_new_lines)
+            print("[+] file_wrapper.c successfully patched for Kernel 4.19.")
         '
 
         cat << 'EOF' > drivers/kernelsu/ksu_compat.h
@@ -166,13 +182,9 @@ jobs:
         zip -r9 ../A04-AnyKernel3-Final.zip *
         cd ..
 
-        echo "[-] Building boot.img..."
-        git clone https://github.com/akhilnarang/mkbootimg.git tools_mkbootimg || true
-        # استخدام ملف Image الناتج لتكوين boot.img قابل للتفليش المباشر
+        echo "[-] Building boot.img structure..."
         mkdir -p boot_img_dir
         cp out/arch/arm64/boot/Image boot_img_dir/Image
-        
-        # إنشاء ملف 압축 Zips نهائية للتحميل
         zip -r9 A04-Boot-Img-Final.zip boot_img_dir/
         
     - name: Upload Artifacts
