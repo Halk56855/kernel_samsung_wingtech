@@ -83,7 +83,7 @@ jobs:
         #endif
         EOF
 
-    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux, dispatch, supercall)
+    - name: Fix Kernel 4.19 Compatibility & Auto-Inject Missing Headers in KoWSU
       run: |
         python3 - << 'EOF'
         import os
@@ -129,9 +129,18 @@ jobs:
                 if file.endswith(".c"):
                     with open(path, "r") as f:
                         content = f.read()
+                    modified = False
                     if "TWA_RESUME" in content and "ifndef TWA_RESUME" not in content and "#define TWA_RESUME" not in content:
                         patch = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n\n"
                         content = patch + content
+                        modified = True
+                    if ("task_pgrp" in content or "task_session" in content) and "#include <linux/sched/signal.h>" not in content:
+                        content = "#include <linux/sched/signal.h>\n" + content
+                        modified = True
+                    if "put_task_struct" in content and "#include <linux/sched/task.h>" not in content:
+                        content = "#include <linux/sched/task.h>\n" + content
+                        modified = True
+                    if modified:
                         with open(path, "w") as f:
                             f.write(content)
         EOF
@@ -212,7 +221,7 @@ jobs:
         os.symlink(os.path.relpath(ksu_src, "drivers"), target_link)
         EOF
 
-    - name: Inject Complete Compatibility Bridge for Kernel 4.19
+    - name: Inject Clean Compatibility Layer for Kernel 4.19 (No Redefinitions)
       run: |
         cat << 'EOF' > fs/ksu_compat.c
         #include <linux/module.h>
@@ -221,8 +230,6 @@ jobs:
         #include <linux/sched.h>
         #include <linux/uaccess.h>
         #include <linux/mount.h>
-        #include <linux/sched/task.h>
-        #include <linux/sched/signal.h>
 
         bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return false;
@@ -232,7 +239,7 @@ jobs:
             return 0;
         }
 
-        /* Missing symbol fallbacks for Kernel 4.19 */
+        /* True missing symbols in Kernel 4.19 */
         long copy_to_kernel_nofault(void *dst, const void *src, size_t size) {
             memcpy(dst, src, size);
             return 0;
@@ -254,11 +261,6 @@ jobs:
             return -EINVAL;
         }
 
-        void put_task_struct(struct task_struct *t) {
-            if (t && t != &init_task)
-                put_task_struct_notrace(t);
-        }
-
         void seccomp_filter_release(struct task_struct *tsk) {
         }
 
@@ -268,14 +270,6 @@ jobs:
 
         bool handle_sepolicy(void) {
             return false;
-        }
-
-        struct pid *task_pgrp(struct task_struct *task) {
-            return task->group_leader ? task->group_leader->pgrp : task->pgrp;
-        }
-
-        struct pid *task_session(struct task_struct *task) {
-            return task->group_leader ? task->group_leader->session : task->session;
         }
         EOF
 
