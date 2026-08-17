@@ -55,7 +55,7 @@ jobs:
                 with open(ksud_path, 'w') as f:
                     f.write(code)
 
-        # 2. Fix TWA_RESUME and other incompatibilities across all source files
+        # 2. Fix TWA_RESUME and fsnotify handle_inode_event incompatibilities across all source files
         for root, dirs, files in os.walk(kernelsu_dir, followlinks=True):
             for file in files:
                 if file.endswith(('.c', '.h')):
@@ -66,6 +66,9 @@ jobs:
                         modified = False
                         if 'TWA_RESUME' in content:
                             content = content.replace('TWA_RESUME', '0')
+                            modified = True
+                        if 'handle_inode_event' in content:
+                            content = content.replace('handle_inode_event', 'handle_event')
                             modified = True
                         if modified:
                             with open(filepath, 'w') as f:
