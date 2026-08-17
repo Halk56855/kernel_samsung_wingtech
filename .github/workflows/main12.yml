@@ -75,26 +75,39 @@ jobs:
                 f.write(content)
         '
 
-    - name: Safe Patch file_wrapper.c for Linux 4.19
+    - name: Ultimate Safe Patch for file_wrapper.c on Linux 4.19
       run: |
         python3 -c '
+        import re
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
                 code = f.read()
 
-            # Safely neutralize only the missing iopoll and remap_file_range fields in Linux 4.19
-            code = code.replace("p->ops.iopoll =", "/* p->ops.iopoll disabled */ //")
-            code = code.replace("p->ops.remap_file_range =", "/* p->ops.remap_file_range disabled */ //")
-            code = code.replace("fp->f_op->iopoll", "NULL")
-            code = code.replace("fp->f_op->remap_file_range", "NULL")
+            # Replace problematic iopoll function body safely
+            code = re.sub(
+                r"static\s+.*?ksu_wrapper_iopoll\s*\(.*?\)\s*\{[^}]*\}",
+                "static int ksu_wrapper_iopoll(void) { return -EOPNOTSUPP; }",
+                code, flags=re.DOTALL
+            )
+
+            # Replace problematic remap_file_range function body safely
+            code = re.sub(
+                r"static\s+.*?ksu_wrapper_remap_file_range\s*\(.*?\)\s*\{[^}]*\}",
+                "static int ksu_wrapper_remap_file_range(void) { return -EOPNOTSUPP; }",
+                code, flags=re.DOTALL
+            )
+
+            # Clear out assignments to non-existent fields in Linux 4.19
+            code = re.sub(r"\.\s*iopoll\s*=\s*[^,]+", ".iopoll = NULL", code)
+            code = re.sub(r"\.\s*remap_file_range\s*=\s*[^,]+", ".remap_file_range = NULL", code)
             code = code.replace("REMAP_FILE_DEDUP", "0")
 
             with open(path, "w") as f:
                 f.write(code)
-            print("Successfully applied safe patch to file_wrapper.c")
+            print("Successfully applied ultimate safe patch to file_wrapper.c")
         except Exception as e:
-            print("Error in safe patch:", e)
+            print("Error in ultimate safe patch:", e)
         '
 
     - name: Install dependencies
