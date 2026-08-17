@@ -16,11 +16,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm android-sdk-libsparse-utils
 
-    - name: Patch, Clean Clang Flags & Build Kernel
+    - name: Patch, Setup SukiSU-Ultra & Build Kernel
       run: |
-        echo "[-] Cleaning unknown/incompatible Clang warning flags across Makefiles..."
         python3 -c '
-        import os
+        import os, shutil
+
+        print("[-] Cleaning unknown/incompatible Clang warning flags across Makefiles...")
         for root, dirs, files in os.walk("."):
             if "out" in root or ".git" in root:
                 continue
@@ -35,17 +36,16 @@ jobs:
                             content = content.replace("-Wno-default-const-init-field-unsafe", "")
                             with open(fp, "w") as f:
                                 f.write(content)
-                    except Exception as e:
+                    except Exception:
                         pass
-        '
 
-        echo "[-] Cloning SukiSU-Ultra..."
-        rm -rf drivers/kernelsu SukiSU-Ultra
-        git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
-
-        echo "[-] Setting up SukiSU-Ultra and Compatibility Layer for Kernel 4.19..."
-        python3 -c '
-        import os, shutil
+        print("[-] Cloning SukiSU-Ultra...")
+        if os.path.exists("drivers/kernelsu"):
+            shutil.rmtree("drivers/kernelsu")
+        if os.path.exists("SukiSU-Ultra"):
+            shutil.rmtree("SukiSU-Ultra")
+        
+        os.system("git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra")
 
         ksu_src = None
         for root, dirs, files in os.walk("SukiSU-Ultra"):
@@ -56,10 +56,9 @@ jobs:
         if not ksu_src:
             raise Exception("Kconfig not found in SukiSU-Ultra clone!")
 
-        if os.path.exists("drivers/kernelsu"):
-            shutil.rmtree("drivers/kernelsu")
         shutil.copytree(ksu_src, "drivers/kernelsu")
 
+        print("[-] Removing MODULE_IMPORT_NS...")
         for root, dirs, files in os.walk("drivers/kernelsu"):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -67,80 +66,84 @@ jobs:
                     try:
                         with open(fp, "r", errors="ignore") as f:
                             lines = f.readlines()
-                        modified = False
-                        new_lines = []
-                        for line in lines:
-                            if "MODULE_IMPORT_NS" in line:
-                                modified = True
-                                continue
-                            new_lines.append(line)
-                        if modified:
-                            with open(fp, "w") as f:
-                                f.writelines(new_lines)
-                    except Exception as e:
+                        new_lines = [line for line in lines if "MODULE_IMPORT_NS" not in line]
+                        with open(fp, "w") as f:
+                            f.writelines(new_lines)
+                    except Exception:
                         pass
+
+        print("[-] Creating Compatibility Layer for Kernel 4.19...")
+        os.makedirs("drivers/kernelsu/linux", exist_ok=True)
+        with open("drivers/kernelsu/ksu_compat.h", "w") as f:
+            f.write("""#ifndef KSU_COMPAT_H
+#define KSU_COMPAT_H
+#ifndef TWA_RESUME
+#define TWA_RESUME 1
+#endif
+#ifndef fallthrough
+#define fallthrough do {} while (0)
+#endif
+#ifndef SECCOMP_ARCH_NATIVE_NR
+#include <asm/unistd.h>
+#ifdef __NR_syscalls
+#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls
+#else
+#define SECCOMP_ARCH_NATIVE_NR 512
+#endif
+#endif
+#endif
+""")
+
+        with open("drivers/kernelsu/linux/pgtable.h", "w") as f:
+            f.write("""#ifndef __KSU_COMPAT_PGTABLE_H
+#define __KSU_COMPAT_PGTABLE_H
+#include <asm/pgtable.h>
+#endif
+""")
+
+        os.makedirs("drivers/kernelsu/infra", exist_ok=True)
+        with open("drivers/kernelsu/infra/file_wrapper.c", "w") as f:
+            f.write("""#include <linux/fs.h>
+#include <linux/file.h>
+#include <linux/slab.h>
+
+struct ksu_file_wrapper {
+    struct file *orig_file;
+};
+
+void *ksu_alloc_file_wrapper(struct file *filp) {
+    struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
+    if (!wrap) return NULL;
+    wrap->orig_file = filp;
+    return wrap;
+}
+
+void ksu_release_file_wrapper(void *data) {
+    if (data) {
+        kfree(data);
+    }
+}
+""")
+
+        with open("drivers/kernelsu/Makefile", "w") as f:
+            f.write("""ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
+_ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+obj-y += $(_ksu_c_files:.c=.o)
+""")
+
+        print("[-] Wiring Kconfig and Makefile...")
+        with open("drivers/Kconfig", "r") as f:
+            kconfig_content = f.read()
+        if "kernelsu" not in kconfig_content:
+            with open("drivers/Kconfig", "a") as f:
+                f.write('\nsource "drivers/kernelsu/Kconfig"\n')
+
+        with open("drivers/Makefile", "r") as f:
+            drv_make_content = f.read()
+        if "kernelsu" not in drv_make_content:
+            with open("drivers/Makefile", "a") as f:
+                f.write('\nobj-y += kernelsu/\n')
         '
-
-        echo "[-] Writing 4.19 compatible file_wrapper.c stub..."
-        mkdir -p drivers/kernelsu/infra
-        cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
-        #include <linux/fs.h>
-        #include <linux/file.h>
-        #include <linux/slab.h>
-
-        struct ksu_file_wrapper {
-            struct file *orig_file;
-        };
-
-        void *ksu_alloc_file_wrapper(struct file *filp) {
-            struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
-            if (!wrap) return NULL;
-            wrap->orig_file = filp;
-            return wrap;
-        }
-
-        void ksu_release_file_wrapper(void *data) {
-            if (data) {
-                kfree(data);
-            }
-        }
-        EOF
-
-        cat << 'EOF' > drivers/kernelsu/ksu_compat.h
-        #ifndef KSU_COMPAT_H
-        #define KSU_COMPAT_H
-        #ifndef TWA_RESUME
-        #define TWA_RESUME 1
-        #endif
-        #ifndef fallthrough
-        #define fallthrough do {} while (0)
-        #endif
-        #endif
-        EOF
-
-        mkdir -p drivers/kernelsu/linux
-        cat << 'EOF' > drivers/kernelsu/linux/pgtable.h
-        #ifndef __KSU_COMPAT_PGTABLE_H
-        #define __KSU_COMPAT_PGTABLE_H
-        #include <asm/pgtable.h>
-        #endif
-        EOF
-
-        if [ -f drivers/kernelsu/Makefile ]; then
-            if ! grep -q "ksu_compat.h" drivers/kernelsu/Makefile; then
-                sed -i '1i ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)' drivers/kernelsu/Makefile
-            fi
-        else
-            cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
-        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-        obj-y += $(_ksu_c_files:.c=.o)
-        EOF
-        fi
-
-        echo "[-] Wiring Kconfig..."
-        if ! grep -q "kernelsu" drivers/Kconfig; then echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig; fi
-        if ! grep -q "kernelsu" drivers/Makefile; then echo 'obj-y += kernelsu/' >> drivers/Makefile; fi
 
         echo "[-] Setting up Toolchains..."
         mkdir -p toolchain/gcc toolchain/clang
