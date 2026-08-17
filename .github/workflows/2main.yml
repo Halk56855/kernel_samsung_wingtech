@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (selinux_hide neutralization, ksu_access_ok wrapper, etc.)..."
+        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (static_assert fix, selinux_hide neutralization, ksu_access_ok wrapper, etc.)..."
         python3 -c '
         import os, re
 
@@ -66,7 +66,7 @@ jobs:
                     void ksu_selinux_hide_exit(void) {}
                     """)
 
-        # 3. Aggressively fix code compatibility and wrap access_ok for Kernel 4.19
+        # 3. Aggressively fix code compatibility, static_assert, and wrap access_ok for Kernel 4.19
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -99,7 +99,7 @@ jobs:
                         # Safely route access_ok to ksu_access_ok to avoid kernel macro conflicts
                         content = content.replace("access_ok(", "ksu_access_ok(")
 
-                        # Inject definitions header
+                        # Inject comprehensive definitions header including static_assert
                         compat_injection = """
                         #ifndef COMPAT_419_FULL_H
                         #define COMPAT_419_FULL_H
@@ -108,6 +108,9 @@ jobs:
                         #endif
                         #ifndef TWA_NONE
                         #define TWA_NONE 0
+                        #endif
+                        #ifndef static_assert
+                        #define static_assert(x, y) _Static_assert(x, y)
                         #endif
                         #undef access_ok
                         #define ksu_access_ok(addr, size) __range_ok((unsigned long)(addr), (unsigned long)(size))
