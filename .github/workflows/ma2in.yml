@@ -69,6 +69,10 @@ jobs:
 
         #include <linux/kernel.h>
 
+        #ifndef fallthrough
+        #define fallthrough do {} while (0)
+        #endif
+
         #define min(x, y) ({				\
             typeof(x) _min1 = (x);			\
             typeof(y) _min2 = (y);			\
@@ -129,10 +133,14 @@ jobs:
                         with open(path, "w") as f:
                             f.write(content)
                 
-                if file.endswith(".c"):
+                if file.endswith(".c") or file.endswith(".h"):
                     with open(path, "r") as f:
                         content = f.read()
                     modified = False
+                    if "fallthrough" in content and "#define fallthrough" not in content:
+                        patch = "#ifndef fallthrough\n#define fallthrough do {} while (0)\n#endif\n\n"
+                        content = patch + content
+                        modified = True
                     if "TWA_RESUME" in content and "ifndef TWA_RESUME" not in content and "#define TWA_RESUME" not in content:
                         patch = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n\n"
                         content = patch + content
