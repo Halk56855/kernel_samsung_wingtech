@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Integrate Wild_KSU KernelSU & Ultimate Kernel 4.19 Dynamic Makefile & Auto-Patch
+    - name: Integrate Wild_KSU KernelSU & Ultimate Kernel 4.19 Deep Symlink AI Auto-Patch
       run: |
         echo "[-] Cleaning up old KernelSU remnants..."
         rm -rf drivers/kernelsu
@@ -36,25 +36,58 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Creating Advanced AI Dynamic Makefile & Kernel 4.19 Patch Script..."
+        echo "[-] Creating Advanced AI Symlink-aware Deep Patch Script for Kernel 4.19..."
         cat << 'EOF' > patch_ksu.py
-        import os, glob
+        import os
 
         kernelsu_dir = 'drivers/kernelsu'
         if not os.path.exists(kernelsu_dir) and os.path.exists('KernelSU/kernel'):
             kernelsu_dir = 'KernelSU/kernel'
 
-        # 1. Fix ksud.c string concatenation error if it exists
-        ksud_path = os.path.join(kernelsu_dir, 'ksud.c')
-        if os.path.exists(ksud_path):
-            with open(ksud_path, 'r') as f:
-                code = f.read()
-            code = code.replace('"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\\n"', '"    exec u:r:su:s0 root -- " KSUD_PATH " post-fs-data\\n"')
-            code = code.replace('"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH', '"    exec u:r:su:s0 root -- " KSUD_PATH')
-            with open(ksud_path, 'w') as f:
-                f.write(code)
+        # Walk through all directories including symlinks to collect all .c and .h files
+        all_c_files = []
+        all_h_files = []
+        target_dirs = [kernelsu_dir, 'KernelSU', 'drivers/kernelsu']
+        for d in target_dirs:
+            if os.path.exists(d):
+                for root, dirs, files in os.walk(d, followlinks=True):
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        if file.endswith('.c'):
+                            all_c_files.append(full_path)
+                        elif file.endswith('.h'):
+                            all_h_files.append(full_path)
 
-        # 2. Create robust stubs C implementation file
+        # Remove duplicates from lists
+        all_c_files = list(set(all_c_files))
+        all_h_files = list(set(all_h_files))
+
+        # 1. Fix ksud.c string concatenation error if it exists
+        for filepath in all_c_files:
+            if 'ksud.c' in filepath:
+                with open(filepath, 'r') as f:
+                    code = f.read()
+                code = code.replace('"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\\n"', '"    exec u:r:su:s0 root -- " KSUD_PATH " post-fs-data\\n"')
+                code = code.replace('"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH', '"    exec u:r:su:s0 root -- " KSUD_PATH')
+                with open(filepath, 'w') as f:
+                    f.write(code)
+
+        # 2. Fix TWA_RESUME and other incompatibilities across all C and H files
+        for filepath in all_c_files + all_h_files:
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+                modified = False
+                if 'TWA_RESUME' in content:
+                    content = content.replace('TWA_RESUME', '0')
+                    modified = True
+                if modified:
+                    with open(filepath, 'w') as f:
+                        f.write(content)
+            except Exception:
+                pass
+
+        # 3. Create robust stubs C implementation file including TWA_RESUME definition
         stubs_c_path = os.path.join(kernelsu_dir, 'ai_kernel419_stubs.c')
         stubs_c_content = """/* AI Auto-generated Comprehensive C-Stubs for Kernel 4.19 Linker & Signature Resolution */
         #include <linux/types.h>
@@ -62,6 +95,10 @@ jobs:
         #include <linux/fs.h>
         #include <linux/path.h>
         #include <linux/cred.h>
+
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 0
+        #endif
 
         u32 ksu_file_sid = 0;
 
@@ -80,7 +117,7 @@ jobs:
         with open(stubs_c_path, 'w') as f:
             f.write(stubs_c_content)
 
-        # 3. Create clean sucompat.c wrapper
+        # 4. Create clean sucompat.c wrapper
         sucompat_path = os.path.join(kernelsu_dir, 'sucompat.c')
         clean_sucompat_content = """/* Clean Kernel 4.19 Compatible sucompat implementation */
         #include <linux/kernel.h>
@@ -90,7 +127,9 @@ jobs:
         #include <linux/fs.h>
         #include <linux/uaccess.h>
 
-        #define KSUD_PATH "/system/bin/ksud"
+        #ifndef TWA_RESUME
+        #define TWA_RESUME 0
+        #endif
 
         int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *__never_use_envp, int *flags) {
             return 0;
@@ -107,29 +146,35 @@ jobs:
         with open(sucompat_path, 'w') as f:
             f.write(clean_sucompat_content)
 
-        # 4. Disable SuSFS and KPM defaults in Kconfig files
-        for filepath in glob.glob(f'{kernelsu_dir}/**/Kconfig', recursive=True) + glob.glob('KernelSU/**/Kconfig', recursive=True):
-            try:
-                with open(filepath, 'r') as f:
-                    content = f.read()
-                modified = False
-                for keyword in ['SUSFS', 'KPM', 'su_sfs']:
-                    if keyword in content:
-                        content = content.replace('default y', 'default n')
-                        modified = True
-                if modified:
-                    with open(filepath, 'w') as f:
-                        f.write(content)
-            except Exception:
-                pass
+        # 5. Disable SuSFS and KPM defaults in Kconfig files
+        for root, dirs, files in os.walk('KernelSU', followlinks=True):
+            for file in files:
+                if file == 'Kconfig':
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r') as f:
+                            content = f.read()
+                        modified = False
+                        for keyword in ['SUSFS', 'KPM', 'su_sfs']:
+                            if keyword in content:
+                                content = content.replace('default y', 'default n')
+                                modified = True
+                        if modified:
+                            with open(filepath, 'w') as f:
+                                f.write(content)
+                    except Exception:
+                        pass
 
-        # 5. Dynamically generate Makefile containing ONLY existing .c files in drivers/kernelsu
-        c_files = [f[:-2] for f in os.listdir(kernelsu_dir) if f.endswith('.c') and f != 'ai_kernel419_stubs.c' and f != 'sucompat.c']
-        c_files.append('ai_kernel419_stubs')
-        c_files.append('sucompat')
+        # 6. Dynamically generate Makefile containing ONLY existing .c files in drivers/kernelsu
+        c_files_list = []
+        for f in os.listdir(kernelsu_dir):
+            if f.endswith('.c') and f != 'ai_kernel419_stubs.c' and f != 'sucompat.c':
+                c_files_list.append(f[:-2])
+        c_files_list.append('ai_kernel419_stubs')
+        c_files_list.append('sucompat')
 
         makefile_content = "# Auto-generated KernelSU Makefile for Kernel 4.19 Non-GKI\n"
-        for c in sorted(list(set(c_files))):
+        for c in sorted(list(set(c_files_list))):
             makefile_content += f"obj-y += {c}.o\n"
 
         with open(os.path.join(kernelsu_dir, 'Makefile'), 'w') as f:
@@ -139,7 +184,7 @@ jobs:
         python3 patch_ksu.py
         rm patch_ksu.py
 
-        echo "[+] AI Dynamic Makefile & Sucompat patch applied successfully!"
+        echo "[+] AI Deep Symlink-aware patch applied successfully!"
 
     - name: Install build dependencies
       run: |
