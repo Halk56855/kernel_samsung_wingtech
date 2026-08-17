@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (ksu_access_ok wrapper, TWA_RESUME, etc.)..."
+        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (selinux_hide neutralization, ksu_access_ok wrapper, etc.)..."
         python3 -c '
         import os, re
 
@@ -54,7 +54,19 @@ jobs:
                     except:
                         pass
 
-        # 2. Aggressively fix code compatibility and wrap access_ok for Kernel 4.19
+        # 2. Neutralize selinux_hide.c completely for Kernel 4.19 due to structural differences in selinux_state
+        for root, dirs, files in os.walk("YukiSU", followlinks=True):
+            for file in files:
+                if file == "selinux_hide.c":
+                    path = os.path.join(root, file)
+                    open(path, "w", encoding="utf-8").write("""
+                    /* [Compat-4.19] Neutralized selinux_hide for Kernel 4.19 */
+                    #include <linux/types.h>
+                    int ksu_selinux_hide_init(void) { return 0; }
+                    void ksu_selinux_hide_exit(void) {}
+                    """)
+
+        # 3. Aggressively fix code compatibility and wrap access_ok for Kernel 4.19
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file.endswith((".c", ".h")):
@@ -112,7 +124,7 @@ jobs:
                     except:
                         pass
 
-        # 3. Create comprehensive compatibility stubs file compat_419.c
+        # 4. Create comprehensive compatibility stubs file compat_419.c
         target_dir = "YukiSU/kernel" if os.path.isdir("YukiSU/kernel") else "YukiSU"
         os.makedirs(target_dir, exist_ok=True)
         
@@ -125,18 +137,15 @@ jobs:
         int ksu_uts_view_init(void) { return 0; }
         void ksu_uts_view_exit(void) {}
         void ksu_uts_view_boot_requested(void) {}
-        int ksu_selinux_hide_init(void) { return 0; }
-        void ksu_selinux_hide_exit(void) {}
         int ksu_file_wrapper_init(void) { return 0; }
         int ksu_sec_policy_init(void) { return 0; }
         void *ksu_dup_sepolicy(void *old) { return NULL; }
         bool ksu_is_unsupported_sepolicy(void) { return false; }
         int ksu_allow(char *s, char *t, char *c, char *p) { return 0; }
-        void ksu_selinux_hide_dummy(void) {}
         """
         open(os.path.join(target_dir, "compat_419.c"), "w", encoding="utf-8").write(compat_code)
 
-        # 4. Add compat_419.o to Makefiles
+        # 5. Add compat_419.o to Makefiles
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file == "Makefile":
