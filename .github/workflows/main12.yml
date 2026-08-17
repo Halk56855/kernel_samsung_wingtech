@@ -75,36 +75,26 @@ jobs:
                 f.write(content)
         '
 
-    - name: Patch file_wrapper.c cleanly for Linux 4.19 compatibility
+    - name: Safe Patch file_wrapper.c for Linux 4.19
       run: |
         python3 -c '
-        import re
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
                 code = f.read()
 
-            # Stub out or remove problematic modern wrapper functions
-            code = re.sub(r"static\s+.*?ksu_wrapper_iopoll\s*\(.*?\)\s*\{[^}]*\}", "/* iopoll wrapper disabled for Linux 4.19 */", code, flags=re.DOTALL)
-            code = re.sub(r"static\s+.*?ksu_wrapper_remap_file_range\s*\(.*?\)\s*\{[^}]*\}", "/* remap_file_range wrapper disabled for Linux 4.19 */", code, flags=re.DOTALL)
-
-            # Safely replace designated initializers and function pointer usages to NULL
-            code = re.sub(r"\.\s*iopoll\s*=\s*[^,]+", ".iopoll = NULL", code)
-            code = re.sub(r"\.\s*remap_file_range\s*=\s*[^,]+", ".remap_file_range = NULL", code)
-            code = re.sub(r"f_op\s*->\s*iopoll", "NULL", code)
-            code = re.sub(r"f_op\s*->\s*remap_file_range", "NULL", code)
+            # Safely neutralize only the missing iopoll and remap_file_range fields in Linux 4.19
+            code = code.replace("p->ops.iopoll =", "/* p->ops.iopoll disabled */ //")
+            code = code.replace("p->ops.remap_file_range =", "/* p->ops.remap_file_range disabled */ //")
+            code = code.replace("fp->f_op->iopoll", "NULL")
+            code = code.replace("fp->f_op->remap_file_range", "NULL")
             code = code.replace("REMAP_FILE_DEDUP", "0")
-
-            # Stub out modern anon_inode functions if present
-            code = re.sub(r"struct\s+file\s*\*\s*anon_inode_make_secure\s*\(.*?\)\s*\{[^}]*\}", 
-                          "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags) { return ERR_PTR(-EOPNOTSUPP); }", 
-                          code, flags=re.DOTALL)
 
             with open(path, "w") as f:
                 f.write(code)
-            print("Successfully patched file_wrapper.c cleanly for Linux 4.19")
+            print("Successfully applied safe patch to file_wrapper.c")
         except Exception as e:
-            print("Error patching file_wrapper.c:", e)
+            print("Error in safe patch:", e)
         '
 
     - name: Install dependencies
