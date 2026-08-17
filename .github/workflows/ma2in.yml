@@ -80,7 +80,7 @@ jobs:
         #endif
         EOF
 
-    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux, dispatch)
+    - name: Fix Kernel 4.19 Compatibility (seccomp_cache, pkg_observer, allowlist, app_profile, selinux, dispatch, supercall)
       run: |
         python3 - << 'EOF'
         import os
@@ -103,14 +103,6 @@ jobs:
                         with open(path, "w") as f:
                             f.write(content)
                         print("Patched pkg_observer.c")
-                elif file == "allowlist.c":
-                    with open(path, "r") as f:
-                        content = f.read()
-                    if "TWA_RESUME" in content and "TWA_RESUME" not in content[:200]:
-                        patch = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n\n"
-                        with open(path, "w") as f:
-                            f.write(patch + content)
-                        print("Patched allowlist.c for TWA_RESUME")
                 elif file == "app_profile.c":
                     with open(path, "r") as f:
                         content = f.read()
@@ -135,6 +127,16 @@ jobs:
                         with open(path, "w") as f:
                             f.write(content)
                         print("Patched dispatch.c with required headers and declarations")
+                
+                if file.endswith(".c"):
+                    with open(path, "r") as f:
+                        content = f.read()
+                    if "TWA_RESUME" in content and "ifndef TWA_RESUME" not in content and "#define TWA_RESUME" not in content:
+                        patch = "#ifndef TWA_RESUME\n#define TWA_RESUME 1\n#endif\n\n"
+                        content = patch + content
+                        with open(path, "w") as f:
+                            f.write(content)
+                        print(f"Patched {file} for TWA_RESUME fallback")
         EOF
 
     - name: Create uapi/linux/mount.h compatibility header
@@ -399,7 +401,7 @@ jobs:
 
         make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
 
-    - name: Package into AnyKernel3 Flashable Zip and prepare boot/dtbo
+    - name: Package into AnyKernel3 Flashable Zip
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
