@@ -15,29 +15,46 @@ jobs:
       run: |
         git clone https://github.com/qrjhamron/ApexSU.git ApexSU
 
-    - name: Clean repository and patch pty.c for ApexSU
+    - name: Patch ApexSU & Linux 4.19 Compatibility (Auto-Fix MODULE_IMPORT_NS & Disable KPM/SuSFS)
       run: |
-        git checkout drivers/tty/pty.c || true
-        git reset --hard || true
-
         python3 -c '
+        import os
+
+        # 1. Patch pty.c
         path = "drivers/tty/pty.c"
-        try:
+        if os.path.exists(path):
             with open(path, "r") as f:
                 content = f.read()
             if "ksu_handle_devpts" in content:
                 lines = content.splitlines()
-                new_lines = []
-                for line in lines:
-                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
-                        new_lines.append("/* " + line + " -- Disabled for ApexSU */")
-                    else:
-                        new_lines.append(line)
+                new_lines = [line if "int ksu_handle_devpts" in line or "ksu_handle_devpts" not in line else "/* " + line + " -- Disabled for KSU */" for line in lines]
                 with open(path, "w") as f:
                     f.write("\n".join(new_lines) + "\n")
-                print("Successfully patched drivers/tty/pty.c")
-        except Exception as e:
-            print("Error patching pty.c:", e)
+
+        # 2. Automatically remove MODULE_IMPORT_NS across all ApexSU source files for Linux 4.19
+        kernelsu_dir = "drivers/kernelsu"
+        # If drivers/kernelsu is not linked yet, check ApexSU/kernel
+        if not os.path.exists(kernelsu_dir) and os.path.exists("ApexSU/kernel"):
+            kernelsu_dir = "ApexSU/kernel"
+
+        if os.path.exists(kernelsu_dir):
+            for root, dirs, files in os.walk(kernelsu_dir):
+                for file in files:
+                    if file.endswith((".c", ".h")):
+                        filepath = os.path.join(root, file)
+                        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                            code = f.read()
+                        if "MODULE_IMPORT_NS" in code:
+                            lines = code.splitlines()
+                            new_code_lines = []
+                            for line in lines:
+                                if "MODULE_IMPORT_NS" in line:
+                                    new_code_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
+                                else:
+                                    new_code_lines.append(line)
+                            with open(filepath, "w", encoding="utf-8") as f:
+                                f.write("\n".join(new_code_lines) + "\n")
+                            print(f"Successfully patched MODULE_IMPORT_NS in {filepath}")
         '
 
     - name: Create compatibility header for Linux 4.19 (pgtable.h)
@@ -75,81 +92,82 @@ jobs:
                 f.write(content)
         '
 
-    - name: Patch file_wrapper.c for Linux 4.19 compatibility (if present)
+    - name: Patch file_wrapper.c for Linux 4.19 compatibility
       run: |
         python3 -c '
         path = "drivers/kernelsu/infra/file_wrapper.c"
-        try:
-            with open(path, "r") as f:
-                content = f.read()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    content = f.read()
 
-            def comment_out_function(text, func_name):
-                idx = text.find(func_name)
-                while idx != -1:
-                    line_start = text.rfind("\n", 0, idx) + 1
+                def comment_out_function(text, func_name):
+                    idx = text.find(func_name)
+                    while idx != -1:
+                        line_start = text.rfind("\n", 0, idx) + 1
+                        brace_count = 0
+                        end_idx = idx
+                        started = False
+                        for i in range(idx, len(text)):
+                            if text[i] == "{":
+                                brace_count += 1
+                                started = True
+                            elif text[i] == "}":
+                                brace_count -= 1
+                                if started and brace_count == 0:
+                                    end_idx = i + 1
+                                    break
+                        if started:
+                            func_code = text[line_start:end_idx]
+                            commented = "\n".join(["/* " + line + " */" for line in func_code.splitlines()])
+                            text = text[:line_start] + commented + text[end_idx:]
+                        else:
+                            break
+                        idx = text.find(func_name, line_start + len(commented))
+                    return text
+
+                if "ksu_wrapper_iopoll" in content:
+                    content = comment_out_function(content, "ksu_wrapper_iopoll")
+                if "ksu_wrapper_remap_file_range" in content:
+                    content = comment_out_function(content, "ksu_wrapper_remap_file_range")
+
+                idx = content.find("anon_inode_mnt")
+                if idx != -1:
+                    func_start = content.rfind("struct file *", 0, idx)
+                    if func_start == -1:
+                        func_start = content.rfind("void *", 0, idx)
+                    if func_start == -1:
+                        func_start = content.rfind("\n\n", 0, idx) + 2
+                    
                     brace_count = 0
-                    end_idx = idx
+                    func_end = idx
                     started = False
-                    for i in range(idx, len(text)):
-                        if text[i] == "{":
+                    for i in range(idx, len(content)):
+                        if content[i] == "{":
                             brace_count += 1
                             started = True
-                        elif text[i] == "}":
+                        elif content[i] == "}":
                             brace_count -= 1
                             if started and brace_count == 0:
-                                end_idx = i + 1
+                                func_end = i + 1
                                 break
                     if started:
-                        func_code = text[line_start:end_idx]
-                        commented = "\n".join(["/* " + line + " */" for line in func_code.splitlines()])
-                        text = text[:line_start] + commented + text[end_idx:]
+                        stub = "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}"
+                        content = content[:func_start] + stub + content[func_end:]
+
+                lines = content.splitlines()
+                new_lines = []
+                for line in lines:
+                    if ".iopoll" in line or ".remap_file_range" in line or "f_op->iopoll" in line or "f_op->remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
+                        new_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
                     else:
-                        break
-                    idx = text.find(func_name, line_start + len(commented))
-                return text
+                        new_lines.append(line)
 
-            if "ksu_wrapper_iopoll" in content:
-                content = comment_out_function(content, "ksu_wrapper_iopoll")
-            if "ksu_wrapper_remap_file_range" in content:
-                content = comment_out_function(content, "ksu_wrapper_remap_file_range")
-
-            idx = content.find("anon_inode_mnt")
-            if idx != -1:
-                func_start = content.rfind("struct file *", 0, idx)
-                if func_start == -1:
-                    func_start = content.rfind("void *", 0, idx)
-                if func_start == -1:
-                    func_start = content.rfind("\n\n", 0, idx) + 2
-                
-                brace_count = 0
-                func_end = idx
-                started = False
-                for i in range(idx, len(content)):
-                    if content[i] == "{":
-                        brace_count += 1
-                        started = True
-                    elif content[i] == "}":
-                        brace_count -= 1
-                        if started and brace_count == 0:
-                            func_end = i + 1
-                            break
-                if started:
-                    stub = "struct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags)\n{\n\treturn ERR_PTR(-EOPNOTSUPP);\n}"
-                    content = content[:func_start] + stub + content[func_end:]
-
-            lines = content.splitlines()
-            new_lines = []
-            for line in lines:
-                if ".iopoll" in line or ".remap_file_range" in line or "f_op->iopoll" in line or "f_op->remap_file_range" in line or "REMAP_FILE_DEDUP" in line:
-                    new_lines.append("/* " + line + " -- Disabled for Linux 4.19 */")
-                else:
-                    new_lines.append(line)
-
-            with open(path, "w") as f:
-                f.write("\n".join(new_lines) + "\n")
-            print("Successfully patched file_wrapper.c for Linux 4.19")
-        except Exception as e:
-            print("Note/Error patching file_wrapper.c (path may vary):", e)
+                with open(path, "w") as f:
+                    f.write("\n".join(new_lines) + "\n")
+                print("Successfully patched file_wrapper.c for Linux 4.19")
+            except Exception as e:
+                print("Note/Error patching file_wrapper.c:", e)
         '
 
     - name: Install dependencies
@@ -207,6 +225,8 @@ jobs:
         CONFIG_KPROBE_EVENTS=y
         CONFIG_HAVE_KPROBES=y
         CONFIG_KSU_KPROBE_HOOKS=y
+        CONFIG_KSU_KPM=n
+        CONFIG_KSU_SUSFS=n
         EOT
 
         make -C $(pwd) $BUILD_ARGS olddefconfig
