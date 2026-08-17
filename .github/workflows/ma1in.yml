@@ -26,25 +26,30 @@ jobs:
               fi
           done
 
-      - name: Clone and Setup SukiSU-Ultra
+      - name: Clone and Setup SukiSU-Ultra Correctly
         run: |
           rm -rf drivers/kernelsu SukiSU-Ultra
           git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
           
-          KSU_SRC=$(find SukiSU-Ultra -name "Kconfig" -exec dirname {} \; | head -n 1)
-          if [ -z "$KSU_SRC" ]; then
-              echo "Error: Kconfig not found in SukiSU-Ultra!"
-              exit 1
+          # نسخ السورس بالكامل أو المجلد الجذر الصحيح لضمان وجود مجلدات uapi و include داخله
+          if [ -d "SukiSU-Ultra/kernel" ]; then
+              cp -r SukiSU-Ultra/kernel drivers/kernelsu
+          elif [ -d "SukiSU-Ultra/drivers/kernelsu" ]; then
+              cp -r SukiSU-Ultra/drivers/kernelsu drivers/kernelsu
+          else
+              cp -r SukiSU-Ultra drivers/kernelsu
           fi
           
-          cp -r "$KSU_SRC" drivers/kernelsu
-          
-          # Remove MODULE_IMPORT_NS
+          # إزالة MODULE_IMPORT_NS لمنع أخطاء التوافق مع 4.19
           find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-      - name: Create Compatibility Layers and Stubs
+      - name: Create Compatibility Layers, Missing Headers and Stubs
         run: |
-          mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra
+          mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi
+          
+          # البحث النسخي عن أي ملفات هيدر ناقصة وتوفيرها في مكانها الصحيح
+          find SukiSU-Ultra -name "app_profile.h" -exec cp {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
+          find SukiSU-Ultra -name "app_profile.h" -exec cp {} drivers/kernelsu/ \; 2>/dev/null || true
           
           cat << 'EOF' > drivers/kernelsu/ksu_compat.h
           #ifndef KSU_COMPAT_H
@@ -96,8 +101,9 @@ jobs:
           }
           EOF
 
+          # ضبط مسارات الـ include في Makefile الخاص بـ kernelsu ليشمل كافة المسارات الفرعية
           cat << 'EOF' > drivers/kernelsu/Makefile
-          ccflags-y += -w -include $(src)/ksu_compat.h -I$(src)
+          ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi
           _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
           obj-y += $(_ksu_c_files:.c=.o)
           EOF
@@ -121,7 +127,7 @@ jobs:
           export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
           export ARCH=arm64
           export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
-          export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu"
+          export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu/uapi"
 
           make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
           
