@@ -1,187 +1,183 @@
-name: Build Kernel Samsung Wingtech ApkeSU (a04)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - SukiSU-Ultra)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    - name: Clone ApkeSU repository
-      run: |
-        git clone https://github.com/fixz232/ApkeSU.git ApkeSU
+      - name: Setup Kernel Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio lld llvm android-sdk-libsparse-utils
 
-    - name: Clean repository and patch pty.c for KernelSU-Next Legacy
-      run: |
-        git checkout drivers/tty/pty.c || true
-        git reset --hard || true
+      - name: Clean Clang Flags
+        run: |
+          find . -type f \( -name "Makefile" -o -name "Kbuild" \) ! -path "*/out/*" ! -path "*/.git/*" | while read -r file; do
+              if grep -q "default-const-init" "$file"; then
+                  sed -i 's/-Wno-default-const-init-var-unsafe//g' "$file"
+                  sed -i 's/-Wno-default-const-init-field-unsafe//g' "$file"
+                  echo "Cleaned flags in $file"
+              fi
+          done
 
-        python3 -c '
-        path = "drivers/tty/pty.c"
-        try:
-            with open(path, "r") as f:
-                content = f.read()
-            if "ksu_handle_devpts" in content:
-                lines = content.splitlines()
-                new_lines = []
-                for line in lines:
-                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
-                        new_lines.append("/* " + line + " -- Disabled for KSU-Next Legacy */")
-                    else:
-                        new_lines.append(line)
-                with open(path, "w") as f:
-                    f.write("\n".join(new_lines) + "\n")
-                print("Successfully patched drivers/tty/pty.c")
-        except Exception as e:
-            print("Error patching pty.c:", e)
-        '
-
-    - name: Create compatibility header for Linux 4.19 (pgtable.h)
-      run: |
-        mkdir -p include/linux
-        echo -e "#ifndef _LINUX_PGTABLE_H\n#define _LINUX_PGTABLE_H\n#include <asm/pgtable.h>\n#endif" > include/linux/pgtable.h
-
-    - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
-      run: |
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s 3.3.0
-
-        if [ ! -d "drivers/kernelsu" ]; then
-          if [ -d "KernelSU-Next/kernel" ]; then
-            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
-          elif [ -d "KernelSU/kernel" ]; then
-            ln -sf ../KernelSU/kernel drivers/kernelsu
+      - name: Clone and Setup SukiSU-Ultra Correctly
+        run: |
+          rm -rf drivers/kernelsu SukiSU-Ultra
+          git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
+          
+          if [ -d "SukiSU-Ultra/kernel" ]; then
+              cp -r SukiSU-Ultra/kernel drivers/kernelsu
+          elif [ -d "SukiSU-Ultra/drivers/kernelsu" ]; then
+              cp -r SukiSU-Ultra/drivers/kernelsu drivers/kernelsu
+          else
+              cp -r SukiSU-Ultra drivers/kernelsu
           fi
-        fi
+          
+          find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-        python3 -c '
-        with open("drivers/Makefile", "r") as f:
-            content = f.read()
-        if "kernelsu" not in content:
-            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
-            with open("drivers/Makefile", "w") as f:
-                f.write(content)
-        '
+      - name: Fix and Mirror All UAPI Headers and C++ Includes
+        run: |
+          mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi
+          
+          # توفير محاكي مكتبة C++ cstdint لكي يفهمها مترجم الـ C في النواة
+          cat << 'EOF' > drivers/kernelsu/cstdint
+          #ifndef __KSU_CSTDINT_H
+          #define __KSU_CSTDINT_H
+          #include <linux/types.h>
+          #include <stdint.h>
+          #endif
+          EOF
 
-        python3 -c '
-        with open("drivers/Kconfig", "r") as f:
-            content = f.read()
-        if "drivers/kernelsu/Kconfig" not in content:
-            idx = content.rfind("endmenu")
-            if idx != -1:
-                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
-            else:
-                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
-            with open("drivers/Kconfig", "w") as f:
-                f.write(content)
-        '
+          # نسخ أو ربط ملفات الهيدر تلقائياً
+          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
+          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/ \; 2>/dev/null || true
+          
+          if [ -d "drivers/kernelsu/include/uapi" ]; then
+              cp -r drivers/kernelsu/include/uapi/* drivers/kernelsu/uapi/ 2>/dev/null || true
+          fi
+          if [ -d "drivers/kernelsu/uapi" ]; then
+              cp -r drivers/kernelsu/uapi/* drivers/kernelsu/ 2>/dev/null || true
+          fi
 
-    - name: Ultimate Safe Patch for file_wrapper.c (Fixing 4.19 Syntax & Remap Errors)
-      run: |
-        python3 -c '
-        path = "drivers/kernelsu/infra/file_wrapper.c"
-        try:
-            with open(path, "r") as f:
-                content = f.read()
+          cat << 'EOF' > drivers/kernelsu/ksu_compat.h
+          #ifndef KSU_COMPAT_H
+          #define KSU_COMPAT_H
+          #ifndef TWA_RESUME
+          #define TWA_RESUME 1
+          #endif
+          #ifndef fallthrough
+          #define fallthrough do {} while (0)
+          #endif
+          #ifndef SECCOMP_ARCH_NATIVE_NR
+          #include <asm/unistd.h>
+          #ifdef __NR_syscalls
+          #define SECCOMP_ARCH_NATIVE_NR __NR_syscalls
+          #else
+          #define SECCOMP_ARCH_NATIVE_NR 512
+          #endif
+          #endif
+          #endif
+          EOF
 
-            lines = content.splitlines()
-            new_lines = []
-            
-            for line in lines:
-                if "ksu_wrapper_remap_file_range" in line or "ksu_wrapper_iopoll" in line or "anon_inode_make_secure" in line:
-                    new_lines.append("/* " + line + " -- Stubbed/Disabled for Linux 4.19 */")
-                elif any(kw in line for kw in [".iopoll", ".remap_file_range", "f_op->iopoll", "f_op->remap_file_range", "REMAP_FILE_DEDUP"]):
-                    new_lines.append("/* " + line.strip() + " -- Disabled */")
-                else:
-                    new_lines.append(line)
+          cat << 'EOF' > drivers/kernelsu/linux/pgtable.h
+          #ifndef __KSU_COMPAT_PGTABLE_H
+          #define __KSU_COMPAT_PGTABLE_H
+          #include <asm/pgtable.h>
+          #endif
+          EOF
 
-            new_lines.append("\nstruct file *anon_inode_make_secure(const char *name, const struct file_operations *fops, void *priv, int flags) {\n\treturn ERR_PTR(-EOPNOTSUPP);\n}\n")
+          cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
+          #include <linux/fs.h>
+          #include <linux/file.h>
+          #include <linux/slab.h>
 
-            with open(path, "w") as f:
-                f.write("\n".join(new_lines) + "\n")
-            print("Successfully applied ultimate safe patch to file_wrapper.c")
-        except Exception as e:
-            print("Error in ultimate safe patch:", e)
-        '
+          struct ksu_file_wrapper {
+              struct file *orig_file;
+          };
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip \
-          wget xz-utils device-tree-compiler libfdt-dev \
-          gcc-arm-linux-gnueabi
+          void *ksu_alloc_file_wrapper(struct file *filp) {
+              struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
+              if (!wrap) return NULL;
+              wrap->orig_file = filp;
+              return wrap;
+          }
 
-    - name: Prepare directories
-      run: mkdir -p toolchain/gcc toolchain/clang
+          void ksu_release_file_wrapper(void *data) {
+              if (data) {
+                  kfree(data);
+              }
+          }
+          EOF
 
-    - name: Download GCC toolchain
-      run: |
-        cd toolchain/gcc
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
-        tar -xf gcc.tar.xz -C ./
+          cat << 'EOF' > drivers/kernelsu/Makefile
+          ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi
+          _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
+          obj-y += $(_ksu_c_files:.c=.o)
+          EOF
 
-    - name: Download Clang r383902 (Compatible)
-      run: |
-        cd toolchain/clang
-        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
-        mkdir -p host/linux-x86/clang-r383902
-        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+      - name: Wire Kconfig and Makefile
+        run: |
+          if ! grep -q "kernelsu" drivers/Kconfig; then
+              echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          fi
+          if ! grep -q "kernelsu" drivers/Makefile; then
+              echo 'obj-y += kernelsu/' >> drivers/Makefile
+          fi
 
-    - name: Export environment variables
-      run: |
-        echo "CROSS_COMPILE=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
-        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang" >> $GITHUB_ENV
-        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-        echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w" >> $GITHUB_ENV
-        echo "LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld" >> $GITHUB_ENV
-        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+      - name: Build Kernel
+        run: |
+          mkdir -p toolchain/gcc
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+          tar -xf gcc.tar.xz -C toolchain/gcc
+          
+          GCC_PATH=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
+          export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
+          export ARCH=arm64
+          export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
+          export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu/uapi"
 
-    - name: Build kernel
-      run: |
-        BUILD_ARGS="O=$(pwd)/out CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang LD=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-ld CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y"
+          make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
+          
+          cat << 'EOT' >> $(pwd)/out/.config
+          CONFIG_KSU=y
+          CONFIG_KPM=n
+          CONFIG_KSU_SUSFS=n
+          CONFIG_LTO=n
+          CONFIG_LTO_CLANG=n
+          CONFIG_THINLTO=n
+          CONFIG_KPROBES=y
+          CONFIG_KSU_KPROBE_HOOKS=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_SECURITY_SELINUX=y
+          CONFIG_IKHEADERS=n
+          EOT
+          
+          make -C $(pwd) O=$(pwd)/out olddefconfig
+          make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc) || make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" V=1 -j1
 
-        make -C $(pwd) $BUILD_ARGS rsuntk-a04_defconfig
+      - name: Package Output
+        run: |
+          git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+          cp out/arch/arm64/boot/Image AnyKernel3/
+          cd AnyKernel3
+          zip -r9 ../A04-AnyKernel3-Final.zip *
+          cd ..
 
-        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
-          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
-        fi
+          mkdir -p boot_img_dir
+          cp out/arch/arm64/boot/Image boot_img_dir/Image
+          zip -r9 A04-Boot-Img-Final.zip boot_img_dir/
 
-        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
-        
-        cat << 'EOT' >> $(pwd)/out/.config
-        CONFIG_IKHEADERS=n
-        CONFIG_KSU=y
-        CONFIG_KPROBES=y
-        CONFIG_KPROBE_EVENTS=y
-        CONFIG_HAVE_KPROBES=y
-        CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KSU_SUSFS=n
-        # CONFIG_KPM is not set
-        # CONFIG_KSU_KPM is not set
-        EOT
-
-        make -C $(pwd) $BUILD_ARGS olddefconfig
-
-        make -C $(pwd) $BUILD_ARGS -j$(nproc) || make -C $(pwd) $BUILD_ARGS -j1
-
-    - name: Package with AnyKernel3-a04
-      run: |
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
-        cp out/arch/arm64/boot/Image AnyKernel3/
-        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
-        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
-        cd AnyKernel3
-        zip -r9 ../A04-KernelSU-Next-AnyKernel3.zip * -x .git README.md LICENSE
-
-    - name: Upload kernel artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: A04-KernelSU-Next-Flashable-Zip
-        path: A04-KernelSU-Next-AnyKernel3.zip
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: A04-Final-Kernel-Packages
+          path: |
+            A04-AnyKernel3-Final.zip
+            A04-Boot-Img-Final.zip
