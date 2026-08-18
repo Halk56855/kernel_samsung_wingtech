@@ -128,32 +128,59 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-    - name: Apply GPU Overclock (850MHz) via Device Tree patch
+    - name: Apply Advanced Performance (-O2) & Comprehensive GPU Overclock (850MHz)
       run: |
-        echo "[-] Applying GPU Overclock (850MHz) to MediaTek Device Tree / Driver files..."
+        echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
         python3 -c '
         import os
-        patched = False
-        # البحث في ملفات dtsi أو dts أو تعريفات الـ GPU
-        for search_dir in ["arch/arm64/boot/dts/mediatek", "drivers/gpu"]:
-            if os.path.exists(search_dir):
-                for root, dirs, files in os.walk(search_dir):
-                    for f in files:
-                        if f.endswith((".dtsi", ".dts", ".c", ".h")):
-                            fp = os.path.join(root, f)
-                            try:
-                                with open(fp, "r", errors="ignore") as fh:
-                                    content = fh.read()
-                                if "680000000" in content:
-                                    new_content = content.replace("680000000", "850000000")
-                                    with open(fp, "w") as fh:
-                                        fh.write(new_content)
-                                    print(f"[+] Patched GPU frequency ceiling in: {fp}")
-                                    patched = True
-                            except Exception:
-                                pass
-        if not patched:
-            print("[-] Warning: Stock frequency 680000000 not found automatically, please check device source path.")
+        for root, dirs, files in os.walk("."):
+            for f in files:
+                if f == "Makefile" or f.endswith(".mk"):
+                    fp = os.path.join(root, f)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh:
+                            content = fh.read()
+                        if "-Os" in content:
+                            content = content.replace("-Os", "-O2")
+                            with open(fp, "w") as fh:
+                                fh.write(content)
+                            print(f"[+] Replaced -Os with -O2 in: {fp}")
+                    except:
+                        pass
+        '
+
+        echo "[-] Applying exhaustive GPU Overclock (850MHz) across source tree..."
+        python3 -c '
+        import os
+        freq_map = {
+            "680000000": "850000000",
+            "680000": "850000",
+            "680MHz": "850MHz",
+            "680mhz": "850mhz"
+        }
+        patched_count = 0
+        for root, dirs, files in os.walk("."):
+            for f in files:
+                if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
+                    fp = os.path.join(root, f)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh:
+                            content = fh.read()
+                        
+                        modified = False
+                        for old_k, new_v in freq_map.items():
+                            if old_k in content:
+                                content = content.replace(old_k, new_v)
+                                modified = True
+                        
+                        if modified:
+                            with open(fp, "w") as fh:
+                                fh.write(content)
+                            print(f"[+] Overclocked GPU in: {fp}")
+                            patched_count += 1
+                    except:
+                        pass
+        print(f"[+] Total files updated for GPU overclock: {patched_count}")
         '
 
     - name: Install build dependencies
@@ -205,7 +232,7 @@ jobs:
         echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Configure and Compile Kernel (-O2 Optimization & ReSukiSU)
+    - name: Configure and Compile Kernel
       run: |
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
@@ -215,7 +242,7 @@ jobs:
 
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
-        # تطبيق تحسين الأداء -O2 وتفعيل خيارات النواة المطلوبة
+        # Force -O2 Optimization in .config
         sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/CONFIG_CC_OPTIMIZE_FOR_SIZE=n/g' $(pwd)/out/.config || true
         if grep -q "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" $(pwd)/out/.config; then
           sed -i 's/# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
