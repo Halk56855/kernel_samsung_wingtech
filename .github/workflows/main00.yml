@@ -31,7 +31,7 @@ jobs:
         rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
         touch ReSukiSU/kernel/tools/manual_hook_check.mk
         
-        python3 -c '
+        cat << 'EOF' > fix_ksu.py
         import os
         for root, dirs, files in os.walk("ReSukiSU"):
             for f in files:
@@ -45,10 +45,12 @@ jobs:
                             with open(fp, "w") as fh: fh.write(content)
                     except:
                         pass
-        '
+        EOF
+        python3 fix_ksu.py
+        rm fix_ksu.py
 
         echo "[-] Linking ReSukiSU kernel folder to drivers/kernelsu..."
-        python3 -c '
+        cat << 'EOF' > link_ksu.py
         import os, shutil
         ksu_src = None
         for root, dirs, files in os.walk("ReSukiSU"):
@@ -68,7 +70,9 @@ jobs:
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
         print("[+] Symlink drivers/kernelsu created successfully")
-        '
+        EOF
+        python3 link_ksu.py
+        rm link_ksu.py
 
         echo "[-] Injecting compatibility layer into fs/ for LLD perfection..."
         cat << 'EOF' > fs/ksu_compat.c
@@ -107,7 +111,7 @@ jobs:
         EOF
 
         echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
-        python3 -c '
+        cat << 'EOF' > fix_selinux.py
         import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
@@ -126,7 +130,9 @@ jobs:
                 content = "#include \"selinux_defs.h\"\n" + content
             content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
-        '
+        EOF
+        python3 fix_selinux.py
+        rm fix_selinux.py
 
         echo "[-] Wiring Kconfig and Makefile safely into drivers..."
         if ! grep -q "kernelsu" drivers/Kconfig; then
@@ -139,7 +145,7 @@ jobs:
     - name: Apply Custom CPU Frequencies (CPU0-3: 2500MHz, CPU4-7: 2000MHz) & GPU OC (850MHz) & Performance (-O2)
       run: |
         echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
-        python3 -c '
+        cat << 'EOF' > optimize_o2.py
         import os
         for root, dirs, files in os.walk("."):
             for f in files:
@@ -154,19 +160,19 @@ jobs:
                                 fh.write(content)
                     except:
                         pass
-        '
+        EOF
+        python3 optimize_o2.py
+        rm optimize_o2.py
 
-        echo "[-] Applying GPU Overclock (850MHz) and Custom CPU Frequencies (Cluster0: 2500MHz, Cluster1: 2000MHz)..."
-        python3 -c '
-        import os, re
-        
+        echo "[-] Applying GPU Overclock (850MHz)..."
+        cat << 'EOF' > gpu_oc.py
+        import os
         freq_map = {
             "680000000": "850000000",
             "680000": "850000",
             "680MHz": "850MHz",
             "680mhz": "850mhz"
         }
-        
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
@@ -175,43 +181,21 @@ jobs:
                         with open(fp, "r", errors="ignore") as fh:
                             content = fh.read()
                         modified = False
-                        
-                        # Apply GPU Overclock replacements
                         for old_k, new_v in freq_map.items():
                             if old_k in content:
                                 content = content.replace(old_k, new_v)
                                 modified = True
-                                
                         if modified:
                             with open(fp, "w") as fh:
                                 fh.write(content)
                     except:
                         pass
-        '
-
-        # Target specific adjustment for CPU frequencies in device trees / arch files if present
-        python3 -c '
-        import os, re
-        for root, dirs, files in os.walk("."):
-            for f in files:
-                if f.endswith((".dts", ".dtsi", ".h")):
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        # Searching for operating-points or max frequency definitions to adjust safely
-                        # We inject or override limits for CPU0-3 and CPU4-7 where applicable
-                        new_content = content
-                        # If there are specific frequency arrays, we can look for them or handle gracefully
-                        if new_content != content:
-                            with open(fp, "w") as fh:
-                                fh.write(new_content)
-                    except:
-                        pass
-        '
+        EOF
+        python3 gpu_oc.py
+        rm gpu_oc.py
 
         echo "[-] Injecting local memcpy/memset fallbacks for vDSO to prevent dynamic relocations..."
-        python3 -c '
+        cat << 'EOF' > vdso_fix.py
         import os
         vget_path = "arch/arm64/kernel/vdso/vgettimeofday.c"
         if os.path.exists(vget_path):
@@ -226,7 +210,9 @@ jobs:
             with open(vdso_mk, "r") as fh: content = fh.read()
             content = content.replace("-shared", "-shared -ffreestanding -fno-builtin -fno-builtin-memcpy -fno-builtin-memset")
             with open(vdso_mk, "w") as fh: content = fh.write(content)
-        '
+        EOF
+        python3 vdso_fix.py
+        rm vdso_fix.py
 
         echo "[-] Creating robust ld.lld wrapper filtering out compiler-specific flags..."
         if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
