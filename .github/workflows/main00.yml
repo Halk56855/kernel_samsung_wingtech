@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - Performance & GPU OC)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - Performance & GPU OC 850Mhz)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,6 @@ jobs:
         rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
         touch ReSukiSU/kernel/tools/manual_hook_check.mk
         
-        # إزالة أي استدعاء لملف الفحص من Makefiles الخاصة بـ ReSukiSU إن وجد
         python3 -c '
         import os
         for root, dirs, files in os.walk("ReSukiSU"):
@@ -129,6 +128,34 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
+    - name: Apply GPU Overclock (850MHz) via Device Tree patch
+      run: |
+        echo "[-] Applying GPU Overclock (850MHz) to MediaTek Device Tree / Driver files..."
+        python3 -c '
+        import os
+        patched = False
+        # البحث في ملفات dtsi أو dts أو تعريفات الـ GPU
+        for search_dir in ["arch/arm64/boot/dts/mediatek", "drivers/gpu"]:
+            if os.path.exists(search_dir):
+                for root, dirs, files in os.walk(search_dir):
+                    for f in files:
+                        if f.endswith((".dtsi", ".dts", ".c", ".h")):
+                            fp = os.path.join(root, f)
+                            try:
+                                with open(fp, "r", errors="ignore") as fh:
+                                    content = fh.read()
+                                if "680000000" in content:
+                                    new_content = content.replace("680000000", "850000000")
+                                    with open(fp, "w") as fh:
+                                        fh.write(new_content)
+                                    print(f"[+] Patched GPU frequency ceiling in: {fp}")
+                                    patched = True
+                            except Exception:
+                                pass
+        if not patched:
+            print("[-] Warning: Stock frequency 680000000 not found automatically, please check device source path.")
+        '
+
     - name: Install build dependencies
       run: |
         sudo apt-get update
@@ -178,48 +205,7 @@ jobs:
         echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Apply Performance Optimizations (-O2 & GPU 850MHz Overclock)
-      run: |
-        echo "[-] Patching top-level Makefile to force -O2 performance optimization..."
-        python3 -c '
-        import os
-        if os.path.exists("Makefile"):
-            with open("Makefile", "r") as f:
-                content = f.read()
-            # Replace kernel size optimization flag (-Os) with performance flag (-O2)
-            content = content.replace("-Os", "-O2")
-            with open("Makefile", "w") as f:
-                f.write(content)
-            print("[+] Successfully replaced -Os with -O2.")
-        '
-
-        echo "[-] Applying GPU Overclock variant (850MHz target) for MediaTek GPU..."
-        python3 -c '
-        import os
-        patched = False
-        # Search for GPU frequency tables / limits in architecture/drivers source tree (typically stock 680MHz = 680000000 Hz)
-        for root, dirs, files in os.walk("drivers"):
-            for f in files:
-                if f.endswith((".c", ".h", ".dtsi", ".dts")):
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        
-                        if "680000000" in content:
-                            new_content = content.replace("680000000", "850000000")
-                            if new_content != content:
-                                with open(fp, "w") as fh:
-                                    fh.write(new_content)
-                                print(f"[+] Overclocked GPU frequency ceiling in: {fp}")
-                                patched = True
-                    except Exception:
-                        pass
-        if not patched:
-            print("[-] Note: Standard stock frequency literal not directly found or handled via custom defconfig settings.")
-        '
-
-    - name: Configure and Compile Kernel
+    - name: Configure and Compile Kernel (-O2 Optimization & ReSukiSU)
       run: |
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
@@ -228,6 +214,15 @@ jobs:
         fi
 
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
+
+        # تطبيق تحسين الأداء -O2 وتفعيل خيارات النواة المطلوبة
+        sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/CONFIG_CC_OPTIMIZE_FOR_SIZE=n/g' $(pwd)/out/.config || true
+        if grep -q "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" $(pwd)/out/.config; then
+          sed -i 's/# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
+          sed -i 's/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=n/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
+        else
+          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
+        fi
 
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_IKHEADERS=n
