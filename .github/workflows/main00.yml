@@ -11,6 +11,14 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
+    - name: Install build dependencies (GCC 11 & lld) First
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc-11 g++-11 clang lld python3 \
+          libncurses5-dev ccache make git zip wget xz-utils \
+          device-tree-compiler libfdt-dev gcc-11-aarch64-linux-gnu gcc-11-arm-linux-gnueabi cpio
+
     - name: Clean Integration of ReSukiSU & Bypassing Manual Hook Check
       run: |
         echo "[-] Cleaning up old remnants..."
@@ -183,9 +191,10 @@ jobs:
         fi
 
         echo "[-] Creating ld.lld wrapper to filter unsupported flags..."
-        REAL_LLD=$(which ld.lld || echo "/usr/bin/ld.lld")
-        if [ -f "$REAL_LLD" ]; then
-          sudo mv "$REAL_LLD" /usr/bin/ld.lld.real
+        if [ -f /usr/bin/ld.lld ]; then
+          sudo mv /usr/bin/ld.lld /usr/bin/ld.lld.real
+        elif [ -f /usr/local/bin/ld.lld ]; then
+          sudo mv /usr/local/bin/ld.lld /usr/bin/ld.lld.real
         fi
         
         sudo tee /usr/local/bin/ld.lld << 'EOF'
@@ -203,14 +212,6 @@ jobs:
         exec /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
         EOF
         sudo chmod +x /usr/local/bin/ld.lld
-
-    - name: Install build dependencies (GCC 11 & lld)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          bc bison flex libssl-dev gcc-11 g++-11 clang lld python3 \
-          libncurses5-dev ccache make git zip wget xz-utils \
-          device-tree-compiler libfdt-dev gcc-11-aarch64-linux-gnu gcc-11-arm-linux-gnueabi cpio
 
     - name: Set Environment Variables
       run: |
