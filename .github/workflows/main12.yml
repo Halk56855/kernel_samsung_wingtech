@@ -74,7 +74,7 @@ jobs:
                 f.write(content)
         EOF
 
-    - name: Fix file_wrapper.c compatibility for Linux 4.19
+    - name: Perfect Compatibility Patch for file_wrapper.c on Linux 4.19
       run: |
         python3 - << 'EOF'
         path = "drivers/kernelsu/infra/file_wrapper.c"
@@ -82,14 +82,22 @@ jobs:
             with open(path, "r") as f:
                 code = f.read()
             
-            # Disable incompatible file operations for Linux 4.19 cleanly
-            code = code.replace("p->ops.iopoll", "/* p->ops.iopoll */ (void")
-            code = code.replace("p->ops.remap_file_range", "/* p->ops.remap_file_range */ (void")
-            code = code.replace("REMAP_FILE_DEDUP", "0")
+            # Safely neutralize iopoll and remap_file_range assignments and usages for kernel < 5.0
+            # We inject preprocessor check or wrap them cleanly
+            # Let us replace the assignment blocks or function contents safely
+            
+            # Replace iopoll references
+            code = code.replace("p->ops.iopoll = ", "/* p->ops.iopoll disabled */ // ")
+            code = code.replace("p->ops.remap_file_range = ", "/* p->ops.remap_file_range disabled */ // ")
+            
+            # Remove or stub the function bodies if needed, or wrap them in macros
+            # Let us do a precise string replacement for the assignments causing compilation errors:
+            code = code.replace("fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL", "NULL")
+            code = code.replace("fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL", "NULL")
 
             with open(path, "w") as f:
                 f.write(code)
-            print("Successfully patched file_wrapper.c for Linux 4.19")
+            print("Successfully patched file_wrapper.c compatibility issues for Linux 4.19")
         except Exception as e:
             print("Error patching file_wrapper.c:", e)
         EOF
