@@ -60,24 +60,21 @@ jobs:
                 with open(ksud_path, 'w') as f:
                     f.write(code)
 
-        # 2. Fix EXPECTED_MANAGER_SIZE and EXPECTED_MANAGER_HASH in apk_sign.c
+        # 2. Force inject EXPECTED_MANAGER_SIZE and EXPECTED_MANAGER_HASH in apk_sign.c
         for root, dirs, files in os.walk(kernelsu_dir, followlinks=True):
             if 'apk_sign.c' in files:
                 apk_sign_path = os.path.join(root, 'apk_sign.c')
                 with open(apk_sign_path, 'r') as f:
                     code = f.read()
                 manager_definitions = """
-                #ifndef EXPECTED_MANAGER_SIZE
+                #undef EXPECTED_MANAGER_SIZE
+                #undef EXPECTED_MANAGER_HASH
                 #define EXPECTED_MANAGER_SIZE 0x381
-                #endif
-                #ifndef EXPECTED_MANAGER_HASH
                 #define EXPECTED_MANAGER_HASH "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4"
-                #endif
                 """
-                if 'EXPECTED_MANAGER_SIZE' not in code:
-                    code = manager_definitions + code
-                    with open(apk_sign_path, 'w') as f:
-                        f.write(code)
+                code = manager_definitions + code
+                with open(apk_sign_path, 'w') as f:
+                    f.write(code)
 
         # 3. Fix TWA_RESUME and fsnotify handle_inode_event incompatibilities across all source files
         for root, dirs, files in os.walk(kernelsu_dir, followlinks=True):
@@ -208,7 +205,7 @@ jobs:
                     except Exception:
                         pass
 
-        # 9. Dynamically generate a 100% accurate Makefile based on existing .c files
+        # 9. Dynamically generate a 100% accurate Makefile with global C flags
         c_files_list = []
         for f in os.listdir(kernelsu_dir):
             if f.endswith('.c') and f != 'ai_kernel419_stubs.c' and f != 'sucompat.c' and f != 'pkg_observer.c' and f != 'setuid_hook.c':
@@ -218,7 +215,9 @@ jobs:
         c_files_list.append('pkg_observer')
         c_files_list.append('setuid_hook')
 
-        makefile_content = "# Auto-generated Bulletproof KernelSU Makefile for Kernel 4.19 Non-GKI\n"
+        makefile_content = """# Auto-generated Bulletproof KernelSU Makefile for Kernel 4.19 Non-GKI
+        ccflags-y += -DEXPECTED_MANAGER_SIZE=0x381 -DEXPECTED_MANAGER_HASH=\\\"52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4\\\"
+        """
         for c in sorted(list(set(c_files_list))):
             makefile_content += f"obj-y += {c}.o\n"
 
