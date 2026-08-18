@@ -164,20 +164,22 @@ jobs:
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           -j1
 
-    - name: Copy Image to source tree
+    - name: Pack into AnyKernel3 Flashable Zip
       run: |
-        cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
-
-    - name: Archive output
-      run: |
-        cd out/arch/arm64/boot/
-        zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb AnyKernel3/dtb 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img 2>/dev/null || true
+        
+        cd AnyKernel3
+        zip -r9 ../kernel-A04-KSU-Next-Flashable.zip * -x ".git*" README.md
+        cd ..
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: built-kernel
+        name: built-kernel-flashable
         path: |
           out/arch/arm64/boot/Image
-          out/arch/arm64/boot/kernel.zip
+          kernel-A04-KSU-Next-Flashable.zip
           .config
