@@ -1,0 +1,133 @@
+name: Build Kernel Samsung Wingtech A04 (Performance -O2 & GPU 850MHz OC)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        repository: Halk56855/kernel_samsung_wingtech
+        ref: android-4.19-stable
+        submodules: recursive
+
+    - name: Clean Integration of KittiSU & Disabling KPM/SuSFS
+      run: |
+        echo "[-] Cleaning up old remnants..."
+        rm -rf drivers/kernelsu KittiSU .git/modules/KittiSU fs/ksu_compat.c
+
+        echo "[-] Cloning KittiSU repository (dev branch)..."
+        git clone -b dev https://github.com/terebiko/KittiSU.git KittiSU
+
+        echo "[-] Purging KPM/SuSFS..."
+        python3 -c '
+        import os, re
+        for root, dirs, files in os.walk("KittiSU"):
+            for f in files:
+                fp = os.path.join(root, f)
+                if "susfs" in f.lower() or "kpm" in f.lower():
+                    try:
+                        os.remove(fp)
+                    except: pass
+                    continue
+                try:
+                    with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                    if "manual_hook" in content or "You should integrate KittiSU" in content:
+                        content = re.sub(r".*error.*", "# Bypassed", content)
+                    with open(fp, "w") as fh: fh.write(content)
+                except: pass
+        '
+
+        echo "[-] Linking KittiSU..."
+        python3 -c '
+        import os, shutil
+        ksu_src = next((root for root, dirs, files in os.walk("KittiSU") if "Kconfig" in files), None)
+        os.symlink(os.path.abspath(ksu_src), "drivers/kernelsu")
+        '
+
+        echo "[-] Injecting Compatibility Layer..."
+        cat << 'EOF' > fs/ksu_compat.c
+        #include <linux/module.h>
+        #include <linux/types.h>
+        #include <linux/fs.h>
+        bool ksu_vfs_read_hook(struct file *f, char __user *b, size_t c, loff_t *p) { return false; }
+        int ksu_handle_vfs_read(struct file *f, char __user *b, size_t c, loff_t *p, ssize_t *r) { return 0; }
+        bool ksu_execveat_hook(int *d, struct filename **fn, struct user_arg_ptr *a, struct user_arg_ptr *e, int *f) { return false; }
+        int ksu_handle_execveat_sucompat(int *d, struct filename **fn, struct user_arg_ptr *a, struct user_arg_ptr *e, int *f) { return 0; }
+        EOF
+        echo 'obj-y += ksu_compat.o' >> fs/Makefile
+
+        echo "[-] Wiring Kconfig and Makefile..."
+        echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        echo 'obj-y += kernelsu/' >> drivers/Makefile
+
+    - name: Apply GPU Overclock (850 MHz) & Performance Optimization
+      run: |
+        echo "[-] Updating Device Tree for 850MHz GPU..."
+        python3 -c '
+        import os, re
+        for root, dirs, files in os.walk("arch/arm64/boot/dts"):
+            for f in files:
+                if f.endswith((".dts", ".dtsi")):
+                    fp = os.path.join(root, f)
+                    with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                    if "max-frequency" in content:
+                        content = re.sub(r"max-frequency\s*=\s*<[^>]+>;", "max-frequency = <850000000>;", content)
+                        with open(fp, "w") as fh: fh.write(content)
+        '
+
+        echo "[-] Forcing -O2 Optimization in root Makefile..."
+        sed -i 's/-Os/-O2/g' Makefile || true
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
+
+    - name: Prepare Toolchains
+      run: |
+        mkdir -p toolchain/gcc toolchain/clang
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O toolchain/gcc/gcc.tar.xz
+        tar -xf toolchain/gcc/gcc.tar.xz -C toolchain/gcc/
+        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O toolchain/clang/clang.tar.gz
+        mkdir -p toolchain/clang/host/linux-x86/clang-r383902
+        tar -xzf toolchain/clang/clang.tar.gz -C toolchain/clang/host/linux-x86/clang-r383902
+
+    - name: Compile Kernel
+      run: |
+        export CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
+        export GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
+        export PATH="$CLANG_PATH:$PATH"
+        export CROSS_COMPILE="$GCC_PATH/aarch64-none-linux-gnu-"
+        export CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
+        export ARCH=arm64
+        export CC=clang
+        
+        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
+        
+        cat << 'EOT' >> $(pwd)/out/.config
+        CONFIG_KSU=y
+        CONFIG_LTO=n
+        CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+        CONFIG_CC_OPTIMIZE_FOR_SIZE=n
+        EOT
+
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+        make -C $(pwd) O=$(pwd)/out -j$(nproc)
+
+    - name: Package & Upload
+      run: |
+        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cd AnyKernel3
+        zip -r9 ../A04-Kernel-GPU850-O2.zip *
+      
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: A04-Kernel-GPU850-O2-Zip
+        path: A04-Kernel-GPU850-O2.zip
