@@ -36,7 +36,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (static_assert fix, selinux_hide neutralization, ksu_access_ok wrapper, etc.)..."
+        echo "[-] Running Ultimate Python Patcher for Kernel 4.19 (file_wrapper & selinux_hide neutralization, ksu_access_ok wrapper, etc.)..."
         python3 -c '
         import os, re
 
@@ -54,7 +54,7 @@ jobs:
                     except:
                         pass
 
-        # 2. Neutralize selinux_hide.c completely for Kernel 4.19 due to structural differences in selinux_state
+        # 2. Neutralize selinux_hide.c and file_wrapper.c completely for Kernel 4.19 due to structural incompatibilities
         for root, dirs, files in os.walk("YukiSU", followlinks=True):
             for file in files:
                 if file == "selinux_hide.c":
@@ -64,6 +64,13 @@ jobs:
                     #include <linux/types.h>
                     int ksu_selinux_hide_init(void) { return 0; }
                     void ksu_selinux_hide_exit(void) {}
+                    """)
+                elif file == "file_wrapper.c":
+                    path = os.path.join(root, file)
+                    open(path, "w", encoding="utf-8").write("""
+                    /* [Compat-4.19] Neutralized file_wrapper for Kernel 4.19 */
+                    #include <linux/types.h>
+                    int ksu_file_wrapper_init(void) { return 0; }
                     """)
 
         # 3. Aggressively fix code compatibility, static_assert, and wrap access_ok for Kernel 4.19
@@ -140,7 +147,6 @@ jobs:
         int ksu_uts_view_init(void) { return 0; }
         void ksu_uts_view_exit(void) {}
         void ksu_uts_view_boot_requested(void) {}
-        int ksu_file_wrapper_init(void) { return 0; }
         int ksu_sec_policy_init(void) { return 0; }
         void *ksu_dup_sepolicy(void *old) { return NULL; }
         bool ksu_is_unsupported_sepolicy(void) { return false; }
