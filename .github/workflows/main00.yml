@@ -136,7 +136,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-    - name: Apply Advanced Performance (-O2) & GPU OC (850MHz) & ld.lld Fix
+    - name: Apply Advanced Performance (-O2) & GPU OC (850MHz) & ld.lld Fix & vDSO memcpy Fix
       run: |
         echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
         python3 -c '
@@ -184,11 +184,23 @@ jobs:
                         pass
         '
 
-        echo "[-] Patching vDSO Makefile..."
-        VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
-        if [ -f "$VDSO_MAKEFILE" ]; then
-          sed -i 's/-shared/-shared -fno-builtin-memcpy -fno-builtin-memset -ffreestanding/g' "$VDSO_MAKEFILE"
-        fi
+        echo "[-] Injecting local memcpy/memset fallbacks for vDSO to prevent dynamic relocations..."
+        python3 -c '
+        import os
+        vget_path = "arch/arm64/kernel/vdso/vgettimeofday.c"
+        if os.path.exists(vget_path):
+            with open(vget_path, "r") as fh: content = fh.read()
+            if "memcpy(" not in content:
+                content += "\n\nvoid *memcpy(void *dest, const void *src, __SIZE_TYPE__ n) {\n    char *d = dest;\n    const char *s = src;\n    while (n--)\n        *d++ = *s++;\n    return dest;\n}\n"
+                content += "void *memset(void *s, int c, __SIZE_TYPE__ n) {\n    unsigned char *p = s;\n    while (n--)\n        *p++ = (unsigned char)c;\n    return s;\n}\n"
+            with open(vget_path, "w") as fh: fh.write(content)
+
+        vdso_mk = "arch/arm64/kernel/vdso/Makefile"
+        if os.path.exists(vdso_mk):
+            with open(vdso_mk, "r") as fh: content = fh.read()
+            content = content.replace("-shared", "-shared -ffreestanding -fno-builtin -fno-builtin-memcpy -fno-builtin-memset")
+            with open(vdso_mk, "w") as fh: fh.write(content)
+        '
 
         echo "[-] Creating fixed ld.lld wrapper preserving argv[0]..."
         if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
