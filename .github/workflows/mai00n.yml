@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Final Stable - Performance & GPU 850MHz OC)
+name: Build Kernel Samsung Wingtech A04 (GCC 11, LLD, Performance -O2 & GPU 850MHz OC)
 
 on:
   workflow_dispatch:
@@ -90,28 +90,20 @@ jobs:
                     except: pass
         '
 
-    - name: Install Dependencies
+    - name: Install build dependencies (GCC 11 & lld) First
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison flex libssl-dev gcc g++ clang python3 libncurses5-dev ccache make git zip wget xz-utils device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
-
-    - name: Prepare Toolchains
-      run: |
-        mkdir -p toolchain/gcc toolchain/clang
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O toolchain/gcc/gcc.tar.xz
-        tar -xf toolchain/gcc/gcc.tar.xz -C toolchain/gcc/
-        wget -q https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O toolchain/clang/clang.tar.gz
-        mkdir -p toolchain/clang/host/linux-x86/clang-r383902
-        tar -xzf toolchain/clang/clang.tar.gz -C toolchain/clang/host/linux-x86/clang-r383902
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc-11 g++-11 clang lld python3 \
+          libncurses5-dev ccache make git zip wget xz-utils \
+          device-tree-compiler libfdt-dev gcc-11-aarch64-linux-gnu gcc-11-arm-linux-gnueabi cpio
 
     - name: Compile Kernel
       run: |
-        export CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
-        export GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
-        export PATH="$CLANG_PATH:$PATH"
-        export CROSS_COMPILE="$GCC_PATH/aarch64-none-linux-gnu-"
-        export CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
         export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
         export CC=clang
         export LD=ld.lld
         export AR=llvm-ar
@@ -144,10 +136,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Kernel-GPU850-O2-Final.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Kernel-GPU850-GCC11-AnyKernel3.zip * -x .git README.md LICENSE
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Kernel-GPU850-O2-Final-Zip
-        path: A04-Kernel-GPU850-O2-Final.zip
+        name: A04-Kernel-GPU850-GCC11-Zip
+        path: A04-Kernel-GPU850-GCC11-AnyKernel3.zip
