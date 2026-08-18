@@ -22,11 +22,10 @@ jobs:
               if grep -q "default-const-init" "$file"; then
                   sed -i 's/-Wno-default-const-init-var-unsafe//g' "$file"
                   sed -i 's/-Wno-default-const-init-field-unsafe//g' "$file"
-                  echo "Cleaned flags in $file"
               fi
           done
 
-      - name: Clone and Setup SukiSU-Ultra Correctly
+      - name: Clone and Setup SukiSU-Ultra
         run: |
           rm -rf drivers/kernelsu SukiSU-Ultra
           git clone -b dev https://github.com/SukiSU-Ultra/SukiSU-Ultra.git SukiSU-Ultra
@@ -41,29 +40,27 @@ jobs:
           
           find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/MODULE_IMPORT_NS/d' {} +
 
-      - name: Fix and Mirror All UAPI Headers and C++ Includes
+      - name: Create Compatibility Layers and Headers
         run: |
-          mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi
+          mkdir -p drivers/kernelsu/linux drivers/kernelsu/infra drivers/kernelsu/uapi drivers/kernelsu/sys
           
-          # توفير محاكي مكتبة C++ cstdint لكي يفهمها مترجم الـ C في النواة
           cat << 'EOF' > drivers/kernelsu/cstdint
           #ifndef __KSU_CSTDINT_H
           #define __KSU_CSTDINT_H
           #include <linux/types.h>
-          #include <stdint.h>
+          #include <linux/stddef.h>
+          #ifndef _STDINT_H
+          #define _STDINT_H
+          #endif
           #endif
           EOF
 
-          # نسخ أو ربط ملفات الهيدر تلقائياً
-          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
-          find SukiSU-Ultra -name "*.h" -exec cp --backup=numbered {} drivers/kernelsu/ \; 2>/dev/null || true
-          
-          if [ -d "drivers/kernelsu/include/uapi" ]; then
-              cp -r drivers/kernelsu/include/uapi/* drivers/kernelsu/uapi/ 2>/dev/null || true
-          fi
-          if [ -d "drivers/kernelsu/uapi" ]; then
-              cp -r drivers/kernelsu/uapi/* drivers/kernelsu/ 2>/dev/null || true
-          fi
+          cat << 'EOF' > drivers/kernelsu/sys/ioctl.h
+          #ifndef __KSU_SYS_IOCTL_H
+          #define __KSU_SYS_IOCTL_H
+          #include <linux/ioctl.h>
+          #endif
+          EOF
 
           cat << 'EOF' > drivers/kernelsu/ksu_compat.h
           #ifndef KSU_COMPAT_H
@@ -73,14 +70,6 @@ jobs:
           #endif
           #ifndef fallthrough
           #define fallthrough do {} while (0)
-          #endif
-          #ifndef SECCOMP_ARCH_NATIVE_NR
-          #include <asm/unistd.h>
-          #ifdef __NR_syscalls
-          #define SECCOMP_ARCH_NATIVE_NR __NR_syscalls
-          #else
-          #define SECCOMP_ARCH_NATIVE_NR 512
-          #endif
           #endif
           #endif
           EOF
@@ -92,31 +81,10 @@ jobs:
           #endif
           EOF
 
-          cat << 'EOF' > drivers/kernelsu/infra/file_wrapper.c
-          #include <linux/fs.h>
-          #include <linux/file.h>
-          #include <linux/slab.h>
-
-          struct ksu_file_wrapper {
-              struct file *orig_file;
-          };
-
-          void *ksu_alloc_file_wrapper(struct file *filp) {
-              struct ksu_file_wrapper *wrap = kzalloc(sizeof(struct ksu_file_wrapper), GFP_KERNEL);
-              if (!wrap) return NULL;
-              wrap->orig_file = filp;
-              return wrap;
-          }
-
-          void ksu_release_file_wrapper(void *data) {
-              if (data) {
-                  kfree(data);
-              }
-          }
-          EOF
+          find SukiSU-Ultra -name "*.h" -exec cp -u {} drivers/kernelsu/uapi/ \; 2>/dev/null || true
 
           cat << 'EOF' > drivers/kernelsu/Makefile
-          ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi
+          ccflags-y += -w -include $(src)/ksu_compat.h -I$(src) -I$(src)/include -I$(src)/uapi -I$(src)/sys
           _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
           obj-y += $(_ksu_c_files:.c=.o)
           EOF
@@ -139,8 +107,7 @@ jobs:
           GCC_PATH=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
           export CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-
           export ARCH=arm64
-          export HOSTCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=strict-prototypes -Wno-error=format-security"
-          export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu/uapi"
+          export KCFLAGS="-w -Wno-error -I$(pwd)/drivers/kernelsu -I$(pwd)/drivers/kernelsu/include -I$(pwd)/drivers/kernelsu/uapi -I$(pwd)/drivers/kernelsu/sys"
 
           make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
           
@@ -160,7 +127,7 @@ jobs:
           EOT
           
           make -C $(pwd) O=$(pwd)/out olddefconfig
-          make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" -j$(nproc) || make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" V=1 -j1
+          make -C $(pwd) O=$(pwd)/out -j$(nproc)
 
       - name: Package Output
         run: |
@@ -170,14 +137,8 @@ jobs:
           zip -r9 ../A04-AnyKernel3-Final.zip *
           cd ..
 
-          mkdir -p boot_img_dir
-          cp out/arch/arm64/boot/Image boot_img_dir/Image
-          zip -r9 A04-Boot-Img-Final.zip boot_img_dir/
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: A04-Final-Kernel-Packages
-          path: |
-            A04-AnyKernel3-Final.zip
-            A04-Boot-Img-Final.zip
+          path: A04-AnyKernel3-Final.zip
