@@ -185,6 +185,9 @@ jobs:
       run: |
         CLANG_BIN=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin
         
+        # إضافة مسار أدوات Clang إلى الـ PATH مباشرة ليتم التعرف على llvm-nm و llvm-ar وغيرها
+        echo "PATH=$CLANG_BIN:$PATH" >> $GITHUB_ENV
+        
         echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
         echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
         echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
