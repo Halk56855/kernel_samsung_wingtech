@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Performance -O2 & GPU 850MHz OC)
+name: Build Kernel Samsung Wingtech A04 (Final Stable - Performance & GPU 850MHz OC)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
         echo "[-] Cloning KittiSU repository (dev branch)..."
         git clone -b dev https://github.com/terebiko/KittiSU.git KittiSU
 
-        echo "[-] Purging KPM/SuSFS..."
+        echo "[-] Purging KPM/SuSFS completely..."
         python3 -c '
         import os, re
         for root, dirs, files in os.walk("KittiSU"):
@@ -42,10 +42,12 @@ jobs:
                 except: pass
         '
 
-        echo "[-] Linking KittiSU..."
+        echo "[-] Linking KittiSU safely..."
         python3 -c '
         import os, shutil
         ksu_src = next((root for root, dirs, files in os.walk("KittiSU") if "Kconfig" in files), None)
+        if os.path.lexists("drivers/kernelsu"):
+            os.unlink("drivers/kernelsu")
         os.symlink(os.path.abspath(ksu_src), "drivers/kernelsu")
         '
 
@@ -59,29 +61,34 @@ jobs:
         bool ksu_execveat_hook(int *d, struct filename **fn, struct user_arg_ptr *a, struct user_arg_ptr *e, int *f) { return false; }
         int ksu_handle_execveat_sucompat(int *d, struct filename **fn, struct user_arg_ptr *a, struct user_arg_ptr *e, int *f) { return 0; }
         EOF
-        echo 'obj-y += ksu_compat.o' >> fs/Makefile
+        if ! grep -q "ksu_compat.o" fs/Makefile; then
+            echo 'obj-y += ksu_compat.o' >> fs/Makefile
+        fi
 
         echo "[-] Wiring Kconfig and Makefile..."
-        echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        echo 'obj-y += kernelsu/' >> drivers/Makefile
+        if ! grep -q "kernelsu" drivers/Kconfig; then
+            echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+        fi
+        if ! grep -q "kernelsu" drivers/Makefile; then
+            echo 'obj-y += kernelsu/' >> drivers/Makefile
+        fi
 
-    - name: Apply GPU Overclock (850 MHz) & Performance Optimization
+    - name: Apply GPU Overclock (850 MHz) safely
       run: |
-        echo "[-] Updating Device Tree for 850MHz GPU..."
+        echo "[-] Updating Device Tree max-frequency to 850MHz..."
         python3 -c '
         import os, re
         for root, dirs, files in os.walk("arch/arm64/boot/dts"):
             for f in files:
                 if f.endswith((".dts", ".dtsi")):
                     fp = os.path.join(root, f)
-                    with open(fp, "r", errors="ignore") as fh: content = fh.read()
-                    if "max-frequency" in content:
-                        content = re.sub(r"max-frequency\s*=\s*<[^>]+>;", "max-frequency = <850000000>;", content)
-                        with open(fp, "w") as fh: fh.write(content)
+                    try:
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                        if "max-frequency" in content:
+                            content = re.sub(r"max-frequency\s*=\s*<[^>]+>;", "max-frequency = <850000000>;", content)
+                            with open(fp, "w") as fh: fh.write(content)
+                    except: pass
         '
-
-        echo "[-] Forcing -O2 Optimization in root Makefile..."
-        sed -i 's/-Os/-O2/g' Makefile || true
 
     - name: Install Dependencies
       run: |
@@ -106,12 +113,23 @@ jobs:
         export CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
         export ARCH=arm64
         export CC=clang
-        
+        export LD=ld.lld
+        export AR=llvm-ar
+        export NM=llvm-nm
+        export OBJCOPY=llvm-objcopy
+        export OBJDUMP=llvm-objdump
+        export STRIP=llvm-strip
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
         
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_KSU=y
         CONFIG_LTO=n
+        CONFIG_LTO_CLANG=n
+        CONFIG_THINLTO=n
+        CONFIG_KPM=n
+        CONFIG_KSU_SUSFS=n
         CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
         CONFIG_CC_OPTIMIZE_FOR_SIZE=n
         EOT
@@ -123,11 +141,13 @@ jobs:
       run: |
         git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
         cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
+        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Kernel-GPU850-O2.zip *
+        zip -r9 ../A04-Kernel-GPU850-O2-Final.zip * -x .git README.md LICENSE
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Kernel-GPU850-O2-Zip
-        path: A04-Kernel-GPU850-O2.zip
+        name: A04-Kernel-GPU850-O2-Final-Zip
+        path: A04-Kernel-GPU850-O2-Final.zip
