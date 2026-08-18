@@ -1,295 +1,73 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - Performance & GPU OC 850Mhz)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19)
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel Branch / Tag'
+        required: true
+        default: 'main'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-    - name: Clean Integration of ReSukiSU & Bypassing Manual Hook Check
-      run: |
-        echo "[-] Cleaning up old remnants..."
-        rm -rf drivers/kernelsu ReSukiSU .git/modules/ReSukiSU fs/ksu_compat.c
+      - name: Setup Environment & Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            bc \
+            git \
+            python3 \
+            wget \
+            cpio \
+            unzip \
+            gcc-11-aarch64-linux-gnu \
+            g++-11-aarch64-linux-gnu \
+            gcc-11-arm-linux-gnueabi \
+            g++-11-arm-linux-gnueabi
 
-        echo "[-] Cloning ReSukiSU repository (main branch)..."
-        git clone -b main https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU
+      - name: Fix vDSO Dynamic Relocation Error for Modern Compilers
+        run: |
+          # حقن معاملات لمنع المترجم من توليد مكتبات خارجية داخل الـ vDSO
+          VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
+          if [ -f "$VDSO_MAKEFILE" ]; then
+            echo "Patching $VDSO_MAKEFILE to support modern build environments..."
+            sed -i 's/-shared/-shared -fno-builtin-memcpy -fno-builtin-memset -ffreestanding/g' "$VDSO_MAKEFILE"
+          else
+            echo "Warning: vDSO Makefile path not found, skipping patch."
+          fi
 
-        echo "[-] Neutralizing manual hook check to allow compilation..."
-        rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
-        touch ReSukiSU/kernel/tools/manual_hook_check.mk
-        
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("ReSukiSU"):
-            for f in files:
-                if f.endswith(".mk") or f == "Makefile":
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
-                        if "manual_hook_check" in content:
-                            content = content.replace("include", "# include")
-                            content = content.replace("manual_hook_check", "# manual_hook_check")
-                            with open(fp, "w") as fh: fh.write(content)
-                    except:
-                        pass
-        '
+      - name: Configure Build Variables
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc-11" >> $GITHUB_ENV
 
-        echo "[-] Linking ReSukiSU kernel folder to drivers/kernelsu..."
-        python3 -c '
-        import os, shutil
-        ksu_src = None
-        for root, dirs, files in os.walk("ReSukiSU"):
-            if "Kconfig" in files:
-                ksu_src = root
-                break
-        
-        print(f"[+] Found Kconfig in: {ksu_src}")
-        if not ksu_src:
-            raise Exception("[-] Error: Kconfig not found inside ReSukiSU repository!")
+      - name: Setup Kernel Configuration (Defconfig)
+        run: |
+          mkdir -p out
+          # استبدل wingtech_defconfig باسم ملف التكوين (Defconfig) الخاص بجهازك
+          make O=out ARCH=arm64 CC=aarch64-linux-gnu-gcc-11 CROSS_COMPILE=aarch64-linux-gnu- defconfig
 
-        if os.path.islink("drivers/kernelsu") or os.path.exists("drivers/kernelsu"):
-            if os.path.islink("drivers/kernelsu"):
-                os.unlink("drivers/kernelsu")
-            else:
-                shutil.rmtree("drivers/kernelsu")
+      - name: Build Kernel Image & Modules
+        run: |
+          # بدء عملية البناء مستخدماً جميع أنوية المعالج المتاحة في السيرفر (-jN)
+          make O=out ARCH=arm64 CC=aarch64-linux-gnu-gcc-11 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image modules
 
-        os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        print("[+] Symlink drivers/kernelsu created successfully")
-        '
-
-        echo "[-] Injecting compatibility layer into fs/ for LLD perfection..."
-        cat << 'EOF' > fs/ksu_compat.c
-        #include <linux/module.h>
-        #include <linux/types.h>
-        #include <linux/fs.h>
-        #include <linux/sched.h>
-        #include <linux/uaccess.h>
-
-        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-            return false;
-        }
-
-        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-            return 0;
-        }
-
-        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return false;
-        }
-
-        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return 0;
-        }
-        EOF
-
-        if ! grep -q "ksu_compat.o" fs/Makefile; then
-          echo 'obj-y += ksu_compat.o' >> fs/Makefile
-        fi
-
-        echo "[-] Injecting custom Makefile for ReSukiSU..."
-        cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-        obj-y += $(_ksu_c_files:.c=.o)
-        EOF
-
-        echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
-        python3 -c '
-        import os, re
-        rules_path = "drivers/kernelsu/selinux/rules.c"
-        if os.path.exists(rules_path):
-            with open(rules_path, "r") as fh: content = fh.read()
-            content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
-            if "db = &policydb;" in content:
-                content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
-            else:
-                content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
-            with open(rules_path, "w") as fh: fh.write(content)
-
-        selinux_path = "drivers/kernelsu/selinux/selinux.c"
-        if os.path.exists(selinux_path):
-            with open(selinux_path, "r") as fh: content = fh.read()
-            if "#include \"selinux_defs.h\"" not in content:
-                content = "#include \"selinux_defs.h\"\n" + content
-            content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
-            with open(selinux_path, "w") as fh: fh.write(content)
-        '
-
-        echo "[-] Wiring Kconfig and Makefile safely into drivers..."
-        if ! grep -q "kernelsu" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
-        fi
-
-    - name: Apply Advanced Performance (-O2) & Comprehensive GPU Overclock (850MHz)
-      run: |
-        echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
-        python3 -c '
-        import os
-        for root, dirs, files in os.walk("."):
-            for f in files:
-                if f == "Makefile" or f.endswith(".mk"):
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        if "-Os" in content:
-                            content = content.replace("-Os", "-O2")
-                            with open(fp, "w") as fh:
-                                fh.write(content)
-                            print(f"[+] Replaced -Os with -O2 in: {fp}")
-                    except:
-                        pass
-        '
-
-        echo "[-] Applying exhaustive GPU Overclock (850MHz) across source tree..."
-        python3 -c '
-        import os
-        freq_map = {
-            "680000000": "850000000",
-            "680000": "850000",
-            "680MHz": "850MHz",
-            "680mhz": "850mhz"
-        }
-        patched_count = 0
-        for root, dirs, files in os.walk("."):
-            for f in files:
-                if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        
-                        modified = False
-                        for old_k, new_v in freq_map.items():
-                            if old_k in content:
-                                content = content.replace(old_k, new_v)
-                                modified = True
-                        
-                        if modified:
-                            with open(fp, "w") as fh:
-                                fh.write(content)
-                            print(f"[+] Overclocked GPU in: {fp}")
-                            patched_count += 1
-                    except:
-                        pass
-        print(f"[+] Total files updated for GPU overclock: {patched_count}")
-        '
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          bc bison flex libssl-dev gcc g++ clang python3 \
-          libncurses5-dev ccache make git zip wget xz-utils \
-          device-tree-compiler libfdt-dev gcc-arm-linux-gnueabi cpio
-
-    - name: Prepare Toolchains directories
-      run: mkdir -p toolchain/gcc toolchain/clang
-
-    - name: Download GCC Toolchain
-      run: |
-        cd toolchain/gcc
-        wget -q --show-progress --retry-connrefused --waitretry=2 --read-timeout=30 -t 5 \
-          https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz || \
-        wget -q --show-progress \
-          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
-        tar -xf gcc.tar.xz -C ./
-
-    - name: Download Compatible Clang Toolchain
-      run: |
-        cd toolchain/clang
-        wget -q --show-progress \
-          https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
-        mkdir -p host/linux-x86/clang-r383902
-        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
-
-    - name: Set Environment Variables
-      run: |
-        CLANG_PATH="$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin"
-        GCC_PATH="$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"
-        
-        echo "$CLANG_PATH" >> $GITHUB_PATH
-
-        echo "CROSS_COMPILE=$GCC_PATH/aarch64-none-linux-gnu-" >> $GITHUB_ENV
-        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
-        echo "CC=clang" >> $GITHUB_ENV
-        echo "LD=ld.lld" >> $GITHUB_ENV
-        echo "AR=llvm-ar" >> $GITHUB_ENV
-        echo "NM=llvm-nm" >> $GITHUB_ENV
-        echo "OBJCOPY=llvm-objcopy" >> $GITHUB_ENV
-        echo "OBJDUMP=llvm-objdump" >> $GITHUB_ENV
-        echo "STRIP=llvm-strip" >> $GITHUB_ENV
-        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-        echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
-        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
-
-    - name: Configure and Compile Kernel
-      run: |
-        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
-
-        if [ -f "arch/arm64/configs/rsuntk.config" ]; then
-          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config arch/arm64/configs/rsuntk.config || true
-        fi
-
-        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
-
-        # Force -O2 Optimization in .config
-        sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/CONFIG_CC_OPTIMIZE_FOR_SIZE=n/g' $(pwd)/out/.config || true
-        if grep -q "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" $(pwd)/out/.config; then
-          sed -i 's/# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
-          sed -i 's/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=n/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
-        else
-          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
-        fi
-
-        cat << 'EOT' >> $(pwd)/out/.config
-        CONFIG_IKHEADERS=n
-        CONFIG_KSU=y
-        CONFIG_KPROBES=y
-        CONFIG_KPROBE_EVENTS=y
-        CONFIG_HAVE_KPROBES=y
-        CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KALLSYMS=y
-        CONFIG_KALLSYMS_ALL=y
-        CONFIG_SECURITY_SELINUX=y
-        CONFIG_SECURITY_SELINUX_DISABLE=y
-        CONFIG_SECURITY_SELINUX_DEVELOP=y
-        CONFIG_LTO=n
-        CONFIG_LTO_CLANG=n
-        CONFIG_THINLTO=n
-        CONFIG_KPM=n
-        CONFIG_KSU_SUSFS=n
-        CONFIG_KSU_MANUAL_HOOK=y
-        EOT
-
-        make -C $(pwd) O=$(pwd)/out olddefconfig
-
-        make -C $(pwd) O=$(pwd)/out prepare
-        make -C $(pwd) O=$(pwd)/out scripts
-        make -C $(pwd) O=$(pwd)/out security/
-
-        make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
-
-    - name: Package into AnyKernel3 Flashable Zip
-      run: |
-        git clone https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
-        cp out/arch/arm64/boot/Image AnyKernel3/
-        cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
-        cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
-        cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
-
-    - name: Upload Kernel Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: A04-ReSukiSU-4.19-Zip
-        path: A04-ReSukiSU-AnyKernel3.zip
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: Kernel-Samsung-Wingtech-A04-ReSukiSU
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/dts/*.dtb
+            out/arch/arm64/boot/dt.img
