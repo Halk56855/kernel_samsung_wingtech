@@ -21,18 +21,14 @@ jobs:
 
     - name: Clean Integration of ReSukiSU & Bypassing Manual Hook Check
       run: |
-        echo "[-] Cleaning up old remnants..."
         rm -rf drivers/kernelsu ReSukiSU .git/modules/ReSukiSU fs/ksu_compat.c
-
-        echo "[-] Cloning ReSukiSU repository (main branch)..."
         git clone -b main https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU
-
-        echo "[-] Neutralizing manual hook check to allow compilation..."
         rm -f ReSukiSU/kernel/tools/manual_hook_check.mk
         touch ReSukiSU/kernel/tools/manual_hook_check.mk
         
-        cat << 'EOF' > fix_ksu.py
-        import os
+        python3 -c '
+        import os, shutil
+
         for root, dirs, files in os.walk("ReSukiSU"):
             for f in files:
                 if f.endswith(".mk") or f == "Makefile":
@@ -45,22 +41,15 @@ jobs:
                             with open(fp, "w") as fh: fh.write(content)
                     except:
                         pass
-        EOF
-        python3 fix_ksu.py
-        rm fix_ksu.py
 
-        echo "[-] Linking ReSukiSU kernel folder to drivers/kernelsu..."
-        cat << 'EOF' > link_ksu.py
-        import os, shutil
         ksu_src = None
         for root, dirs, files in os.walk("ReSukiSU"):
             if "Kconfig" in files:
                 ksu_src = root
                 break
         
-        print(f"[+] Found Kconfig in: {ksu_src}")
         if not ksu_src:
-            raise Exception("[-] Error: Kconfig not found inside ReSukiSU repository!")
+            raise Exception("Error: Kconfig not found inside ReSukiSU repository!")
 
         if os.path.islink("drivers/kernelsu") or os.path.exists("drivers/kernelsu"):
             if os.path.islink("drivers/kernelsu"):
@@ -69,58 +58,37 @@ jobs:
                 shutil.rmtree("drivers/kernelsu")
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
-        print("[+] Symlink drivers/kernelsu created successfully")
-        EOF
-        python3 link_ksu.py
-        rm link_ksu.py
 
-        echo "[-] Injecting compatibility layer into fs/ for LLD perfection..."
-        cat << 'EOF' > fs/ksu_compat.c
+        compat_code = """
         #include <linux/module.h>
         #include <linux/types.h>
         #include <linux/fs.h>
         #include <linux/sched.h>
         #include <linux/uaccess.h>
 
-        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-            return false;
-        }
+        bool ksu_vfs_read_hook(struct file *file, char __user *buf, size_t count, loff_t *pos) { return false; }
+        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) { return 0; }
+        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) { return false; }
+        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) { return 0; }
+        """
+        with open("fs/ksu_compat.c", "w") as f:
+            f.write(compat_code)
 
-        int ksu_handle_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos, ssize_t *ret) {
-            return 0;
-        }
+        if os.path.exists("fs/Makefile"):
+            with open("fs/Makefile", "r") as f: f_content = f.read()
+            if "ksu_compat.o" not in f_content:
+                with open("fs/Makefile", "a") as f: f.write("\nobj-y += ksu_compat.o\n")
 
-        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return false;
-        }
+        ksu_mk = "ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux\n_ksu_c_files := $(shell cd $(src) && find . -name \\\"*.c\\\" -not -path \\\"./.*\\\" -not -path \\\"*/tools/*\\\")\nobj-y += $(_ksu_c_files:.c=.o)\n"
+        with open("drivers/kernelsu/Makefile", "w") as f:
+            f.write(ksu_mk)
 
-        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
-            return 0;
-        }
-        EOF
-
-        if ! grep -q "ksu_compat.o" fs/Makefile; then
-          echo 'obj-y += ksu_compat.o' >> fs/Makefile
-        fi
-
-        echo "[-] Injecting custom Makefile for ReSukiSU..."
-        cat << 'EOF' > drivers/kernelsu/Makefile
-        ccflags-y += -w -I$(src) -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include -I$(objtree)/security/selinux
-        _ksu_c_files := $(shell cd $(src) && find . -name "*.c" -not -path "./.*" -not -path "*/tools/*")
-        obj-y += $(_ksu_c_files:.c=.o)
-        EOF
-
-        echo "[-] Fixing SELinux rules.c and selinux.c for Kernel 4.19..."
-        cat << 'EOF' > fix_selinux.py
-        import os, re
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
             with open(rules_path, "r") as fh: content = fh.read()
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
-            else:
-                content = re.sub(r"db\s*=\s*[^;]+;", "extern struct policydb policydb;\n\tdb = &policydb;", content)
             with open(rules_path, "w") as fh: fh.write(content)
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
@@ -128,81 +96,58 @@ jobs:
             with open(selinux_path, "r") as fh: content = fh.read()
             if "#include \"selinux_defs.h\"" not in content:
                 content = "#include \"selinux_defs.h\"\n" + content
-            content = re.sub(r"static\s+inline\s+u32\s+current_sid\(void\)\s*\{[^}]+\}", "/* current_sid provided by objsec.h */", content, flags=re.DOTALL)
             with open(selinux_path, "w") as fh: fh.write(content)
-        EOF
-        python3 fix_selinux.py
-        rm fix_selinux.py
 
-        echo "[-] Wiring Kconfig and Makefile safely into drivers..."
-        if ! grep -q "kernelsu" drivers/Kconfig; then
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-        fi
-        if ! grep -q "kernelsu" drivers/Makefile; then
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
-        fi
+        if os.path.exists("drivers/Kconfig"):
+            with open("drivers/Kconfig", "r") as f: k_content = f.read()
+            if "kernelsu" not in k_content:
+                with open("drivers/Kconfig", "a") as f: f.write("\nsource \"drivers/kernelsu/Kconfig\"\n")
+        if os.path.exists("drivers/Makefile"):
+            with open("drivers/Makefile", "r") as f: m_content = f.read()
+            if "kernelsu" not in m_content:
+                with open("drivers/Makefile", "a") as f: f.write("\nobj-y += kernelsu/\n")
+        '
 
-    - name: Apply Custom CPU Frequencies (CPU0-3: 2500MHz, CPU4-7: 2000MHz) & GPU OC (850MHz) & Performance (-O2)
+    - name: Apply Optimizations, Tweaks, and ld.lld Wrapper
       run: |
-        echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
-        cat << 'EOF' > optimize_o2.py
-        import os
+        python3 -c '
+        import os, re
+
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f == "Makefile" or f.endswith(".mk"):
                     fp = os.path.join(root, f)
                     try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
                         if "-Os" in content:
                             content = content.replace("-Os", "-O2")
-                            with open(fp, "w") as fh:
-                                fh.write(content)
+                            with open(fp, "w") as fh: fh.write(content)
                     except:
                         pass
-        EOF
-        python3 optimize_o2.py
-        rm optimize_o2.py
 
-        echo "[-] Applying GPU Overclock (850MHz)..."
-        cat << 'EOF' > gpu_oc.py
-        import os
-        freq_map = {
-            "680000000": "850000000",
-            "680000": "850000",
-            "680MHz": "850MHz",
-            "680mhz": "850mhz"
-        }
+        freq_map = {"680000000": "850000000", "680000": "850000", "680MHz": "850MHz", "680mhz": "850mhz"}
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
                     fp = os.path.join(root, f)
                     try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
                         modified = False
                         for old_k, new_v in freq_map.items():
                             if old_k in content:
                                 content = content.replace(old_k, new_v)
                                 modified = True
                         if modified:
-                            with open(fp, "w") as fh:
-                                fh.write(content)
+                            with open(fp, "w") as fh: fh.write(content)
                     except:
                         pass
-        EOF
-        python3 gpu_oc.py
-        rm gpu_oc.py
 
-        echo "[-] Injecting local memcpy/memset fallbacks for vDSO to prevent dynamic relocations..."
-        cat << 'EOF' > vdso_fix.py
-        import os
         vget_path = "arch/arm64/kernel/vdso/vgettimeofday.c"
         if os.path.exists(vget_path):
             with open(vget_path, "r") as fh: content = fh.read()
             if "memcpy(" not in content:
-                content += "\n\nvoid *memcpy(void *dest, const void *src, __SIZE_TYPE__ n) {\n    char *d = dest;\n    const char *s = src;\n    while (n--)\n        *d++ = *s++;\n    return dest;\n}\n"
-                content += "void *memset(void *s, int c, __SIZE_TYPE__ n) {\n    unsigned char *p = s;\n    while (n--)\n        *p++ = (unsigned char)c;\n    return s;\n}\n"
+                content += "\n\nvoid *memcpy(void *dest, const void *src, __SIZE_TYPE__ n) { char *d = dest; const char *s = src; while (n--) *d++ = *s++; return dest; }\n"
+                content += "void *memset(void *s, int c, __SIZE_TYPE__ n) { unsigned char *p = s; while (n--) *p++ = (unsigned char)c; return s; }\n"
             with open(vget_path, "w") as fh: content = fh.write(content)
 
         vdso_mk = "arch/arm64/kernel/vdso/Makefile"
@@ -210,31 +155,31 @@ jobs:
             with open(vdso_mk, "r") as fh: content = fh.read()
             content = content.replace("-shared", "-shared -ffreestanding -fno-builtin -fno-builtin-memcpy -fno-builtin-memset")
             with open(vdso_mk, "w") as fh: content = fh.write(content)
-        EOF
-        python3 vdso_fix.py
-        rm vdso_fix.py
+        '
 
-        echo "[-] Creating robust ld.lld wrapper filtering out compiler-specific flags..."
         if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
           sudo mv /usr/bin/ld.lld /usr/bin/ld.lld.real
         elif [ -f /usr/local/bin/ld.lld ] && [ ! -f /usr/local/bin/ld.lld.real ]; then
           sudo mv /usr/local/bin/ld.lld /usr/local/bin/ld.lld.real
         fi
-        
-        sudo tee /usr/local/bin/ld.lld << 'EOF'
-        #!/bin/bash
+
+        python3 -c '
+        wrapper_content = """#!/bin/bash
         NEW_ARGS=()
-        for arg in "$@"; do
-            case "$arg" in
+        for arg in \"$@\"; do
+            case \"$arg\" in
                 -fno-builtin*|-ffreestanding|-fno-common|-fno-stack-protector)
                     ;;
                 *)
-                    NEW_ARGS+=("$arg")
+                    NEW_ARGS+=(\"$arg\")
                     ;;
             esac
         done
-        exec -a ld.lld /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
-        EOF
+        exec -a ld.lld /usr/bin/ld.lld.real \"${NEW_ARGS[@]}\"
+        """
+        with open("/usr/local/bin/ld.lld", "w") as f:
+            f.write(wrapper_content)
+        '
         sudo chmod +x /usr/local/bin/ld.lld
 
     - name: Set Environment Variables
@@ -256,7 +201,6 @@ jobs:
 
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
 
-        # Force -O2 Optimization in .config
         sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/CONFIG_CC_OPTIMIZE_FOR_SIZE=n/g' $(pwd)/out/.config || true
         if grep -q "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" $(pwd)/out/.config; then
           sed -i 's/# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
@@ -265,25 +209,23 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
         fi
 
-        cat << 'EOT' >> $(pwd)/out/.config
-        CONFIG_IKHEADERS=n
-        CONFIG_KSU=y
-        CONFIG_KPROBES=y
-        CONFIG_KPROBE_EVENTS=y
-        CONFIG_HAVE_KPROBES=y
-        CONFIG_KSU_KPROBE_HOOKS=y
-        CONFIG_KALLSYMS=y
-        CONFIG_KALLSYMS_ALL=y
-        CONFIG_SECURITY_SELINUX=y
-        CONFIG_SECURITY_SELINUX_DISABLE=y
-        CONFIG_SECURITY_SELINUX_DEVELOP=y
-        CONFIG_LTO=n
-        CONFIG_LTO_CLANG=n
-        CONFIG_THINLTO=n
-        CONFIG_KPM=n
-        CONFIG_KSU_SUSFS=n
-        CONFIG_KSU_MANUAL_HOOK=y
-        EOT
+        echo "CONFIG_IKHEADERS=n" >> $(pwd)/out/.config
+        echo "CONFIG_KSU=y" >> $(pwd)/out/.config
+        echo "CONFIG_KPROBES=y" >> $(pwd)/out/.config
+        echo "CONFIG_KPROBE_EVENTS=y" >> $(pwd)/out/.config
+        echo "CONFIG_HAVE_KPROBES=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_KPROBE_HOOKS=y" >> $(pwd)/out/.config
+        echo "CONFIG_KALLSYMS=y" >> $(pwd)/out/.config
+        echo "CONFIG_KALLSYMS_ALL=y" >> $(pwd)/out/.config
+        echo "CONFIG_SECURITY_SELINUX=y" >> $(pwd)/out/.config
+        echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $(pwd)/out/.config
+        echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $(pwd)/out/.config
+        echo "CONFIG_LTO=n" >> $(pwd)/out/.config
+        echo "CONFIG_LTO_CLANG=n" >> $(pwd)/out/.config
+        echo "CONFIG_THINLTO=n" >> $(pwd)/out/.config
+        echo "CONFIG_KPM=n" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS=n" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_MANUAL_HOOK=y" >> $(pwd)/out/.config
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
 
