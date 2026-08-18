@@ -1,0 +1,183 @@
+name: Build Kernel Samsung Wingtech (a04/a05)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Clean repository and patch pty.c for KernelSU-Next Legacy
+      run: |
+        git checkout drivers/tty/pty.c || true
+        git reset --hard || true
+
+        # تحييد استدعاء ksu_handle_devpts تلقائياً ليتوافق مع KernelSU-Next Legacy
+        python3 -c '
+        path = "drivers/tty/pty.c"
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            if "ksu_handle_devpts" in content:
+                lines = content.splitlines()
+                new_lines = []
+                for line in lines:
+                    if "ksu_handle_devpts" in line and not "int ksu_handle_devpts" in line:
+                        new_lines.append("/* " + line + " -- Disabled for KSU-Next Legacy */")
+                    else:
+                        new_lines.append(line)
+                with open(path, "w") as f:
+                    f.write("\n".join(new_lines) + "\n")
+                print("Successfully patched drivers/tty/pty.c")
+        except Exception as e:
+            print("Error patching pty.c:", e)
+        '
+
+    - name: Integrate KernelSU-Next (Legacy) & Proper Wiring
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+        # التأكد من وجود مجلد drivers/kernelsu
+        if [ ! -d "drivers/kernelsu" ]; then
+          if [ -d "KernelSU-Next/kernel" ]; then
+            ln -sf ../KernelSU-Next/kernel drivers/kernelsu
+          elif [ -d "KernelSU/kernel" ]; then
+            ln -sf ../KernelSU/kernel drivers/kernelsu
+          fi
+        fi
+
+        # إضافة مسار الكود إلى drivers/Makefile بطريقة آمنة
+        python3 -c '
+        with open("drivers/Makefile", "r") as f:
+            content = f.read()
+        if "kernelsu" not in content:
+            content += "\nobj-$(CONFIG_KSU) += kernelsu/\n"
+            with open("drivers/Makefile", "w") as f:
+                f.write(content)
+        '
+
+        # إدراج Kconfig الخاص بـ KernelSU قبل الـ endmenu الأخير
+        python3 -c '
+        with open("drivers/Kconfig", "r") as f:
+            content = f.read()
+        if "drivers/kernelsu/Kconfig" not in content:
+            idx = content.rfind("endmenu")
+            if idx != -1:
+                content = content[:idx] + "source \"drivers/kernelsu/Kconfig\"\n\n" + content[idx:]
+            else:
+                content += "\nsource \"drivers/kernelsu/Kconfig\"\n"
+            with open("drivers/Kconfig", "w") as f:
+                f.write(content)
+        '
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          bc bison flex libssl-dev gcc g++ clang python3 \
+          libncurses5-dev ccache make git zip \
+          wget xz-utils device-tree-compiler libfdt-dev \
+          gcc-arm-linux-gnueabi lld llvm
+
+    - name: Prepare directories
+      run: mkdir -p toolchain/gcc toolchain/clang
+
+    - name: Download GCC toolchain
+      run: |
+        cd toolchain/gcc
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
+        tar -xf gcc.tar.xz -C ./
+
+    - name: Download Clang r383902 (Compatible with ThinLTO)
+      run: |
+        cd toolchain/clang
+        wget https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902.tar.gz -O clang.tar.gz
+        mkdir -p host/linux-x86/clang-r383902
+        tar -xzf clang.tar.gz -C host/linux-x86/clang-r383902
+
+    - name: Export environment variables
+      run: |
+        GCC_BIN=$(pwd)/toolchain/gcc/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin
+        CLANG_BIN=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin
+        
+        echo "CROSS_COMPILE=$GCC_BIN/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+        echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+        echo "CC=$CLANG_BIN/clang" >> $GITHUB_ENV
+        echo "CXX=$CLANG_BIN/clang++" >> $GITHUB_ENV
+        echo "LD=$CLANG_BIN/ld.lld" >> $GITHUB_ENV
+        echo "AR=$CLANG_BIN/llvm-ar" >> $GITHUB_ENV
+        echo "NM=$CLANG_BIN/llvm-nm" >> $GITHUB_ENV
+        echo "OBJCOPY=$CLANG_BIN/llvm-objcopy" >> $GITHUB_ENV
+        echo "OBJDUMP=$CLANG_BIN/llvm-objdump" >> $GITHUB_ENV
+        echo "STRIP=$CLANG_BIN/llvm-strip" >> $GITHUB_ENV
+        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+        echo "ARCH=arm64" >> $GITHUB_ENV
+        echo "KCFLAGS=-O2 -w" >> $GITHUB_ENV
+        echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
+
+    - name: Build kernel
+      run: |
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-O2 -w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          rsuntk-a04_defconfig
+
+        if [ -f "$(pwd)/arch/arm64/configs/rsuntk.config" ]; then
+          python3 scripts/kconfig/merge_config.sh -O $(pwd)/out $(pwd)/out/.config $(pwd)/arch/arm64/configs/rsuntk.config || true
+        fi
+
+        # ضبط إعدادات الأداء، ThinLTO، KSU، و GPU Overclocking إلى 850Mhz
+        sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
+        sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/# CONFIG_CC_OPTIMIZE_FOR_SIZE is not set/g' $(pwd)/out/.config || true
+        
+        cat << 'EOT' >> $(pwd)/out/.config
+        # Performance & Optimization Tweaks (-O2 & ThinLTO)
+        CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+        CONFIG_LTO=y
+        CONFIG_LTO_CLANG=y
+        CONFIG_LTO_CLANG_THIN=y
+
+        # KernelSU & Kprobes Options
+        CONFIG_IKHEADERS=n
+        CONFIG_KSU=y
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KSU_KPROBE_HOOKS=y
+
+        # GPU Overclock Variant (850Mhz)
+        CONFIG_GPU_OC_850MHZ=y
+        EOT
+
+        # تحديث واعتماد المتغيرات رسمياً
+        make -C $(pwd) O=$(pwd)/out olddefconfig
+
+        # تنفيذ عملية البناء بالتوازي أو بالتوالي عند الأخطاء
+        make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-O2 -w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j$(nproc) || make -C $(pwd) O=$(pwd)/out \
+          KCFLAGS="-O2 -w" CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          -j1
+
+    - name: Copy Image to source tree
+      run: |
+        cp out/arch/arm64/boot/Image arch/arm64/boot/Image || echo "Image not found!"
+
+    - name: Archive output
+      run: |
+        cd out/arch/arm64/boot/
+        zip -r9 kernel.zip Image dtb* dtbo* 2>/dev/null || true
+
+    - name: Upload kernel artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: built-kernel
+        path: |
+          out/arch/arm64/boot/Image
+          out/arch/arm64/boot/kernel.zip
+          .config
