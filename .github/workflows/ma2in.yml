@@ -133,7 +133,6 @@ jobs:
                         with open(path, "w") as f:
                             f.write(content)
                 elif file == "selinux_hide.c":
-                    # Fully stub out selinux_hide.c for Kernel 4.19 to prevent missing member errors
                     with open(path, "w") as f:
                         f.write('''
                         #include <linux/kernel.h>
@@ -247,7 +246,7 @@ jobs:
         os.symlink(os.path.relpath(ksu_src, "drivers"), target_link)
         EOF
 
-    - name: Inject Clean Compatibility Layer for Kernel 4.19 (No Redefinitions)
+    - name: Inject Clean Compatibility Layer for Kernel 4.19 (Weak Symbols)
       run: |
         cat << 'EOF' > fs/ksu_compat.c
         #include <linux/module.h>
@@ -258,33 +257,33 @@ jobs:
         #include <linux/mount.h>
         #include <linux/input.h>
 
-        bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+        __weak bool ksu_execveat_hook(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return false;
         }
 
-        int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+        __weak int ksu_handle_execveat_sucompat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return 0;
         }
 
         /* True missing symbols in Kernel 4.19 */
-        long copy_to_kernel_nofault(void *dst, const void *src, size_t size) {
+        __weak long copy_to_kernel_nofault(void *dst, const void *src, size_t size) {
             memcpy(dst, src, size);
             return 0;
         }
 
-        long copy_from_user_nofault(void *dst, const void __user *src, size_t size) {
+        __weak long copy_from_user_nofault(void *dst, const void __user *src, size_t size) {
             if (copy_from_user(dst, src, size))
                 return -EFAULT;
             return 0;
         }
 
-        long copy_to_user_nofault(void __user *dst, const void *src, size_t size) {
+        __weak long copy_to_user_nofault(void __user *dst, const void *src, size_t size) {
             if (copy_to_user(dst, src, size))
                 return -EFAULT;
             return 0;
         }
 
-        long strncpy_from_user_nofault(char *dst, const char __user *src, long count) {
+        __weak long strncpy_from_user_nofault(char *dst, const char __user *src, long count) {
             long res;
             pagefault_disable();
             res = strncpy_from_user(dst, src, count);
@@ -292,35 +291,35 @@ jobs:
             return res;
         }
 
-        int path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) {
+        __weak int path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags, void *data_page) {
             return -EINVAL;
         }
 
-        void seccomp_filter_release(struct task_struct *tsk) {
+        __weak void seccomp_filter_release(struct task_struct *tsk) {
         }
 
-        void *selinux_cred(const struct cred *cred) {
+        __weak void *selinux_cred(const struct cred *cred) {
             return NULL;
         }
 
-        bool handle_sepolicy(void) {
+        __weak bool handle_sepolicy(void) {
             return false;
         }
 
         /* Missing KoWSU runtime symbols */
-        int ksu_handle_sys_reboot(int magic1, int magic2, int cmd, void __user *arg) {
+        __weak int ksu_handle_sys_reboot(int magic1, int magic2, int cmd, void __user *arg) {
             return 0;
         }
 
-        bool ksu_handle_execveat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
+        __weak bool ksu_handle_execveat(int *dfd, struct filename **filename, struct user_arg_ptr *argv, struct user_arg_ptr *envp, int *flags) {
             return false;
         }
 
-        int ksu_handle_devpts(struct inode *inode) {
+        __weak int ksu_handle_devpts(struct inode *inode) {
             return 0;
         }
 
-        void ksu_input_hook(struct input_handle *handle, unsigned int type, unsigned int code, int value) {
+        __weak void ksu_input_hook(struct input_handle *handle, unsigned int type, unsigned int code, int value) {
         }
         EOF
 
