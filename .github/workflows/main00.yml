@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - Performance & CPU/GPU Tweaks)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - CPU & GPU 850MHz Full Performance)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Install build dependencies (GCC 11 & lld) First
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -85,7 +85,7 @@ jobs:
 
         rules_path = "drivers/kernelsu/selinux/rules.c"
         if os.path.exists(rules_path):
-            with open(rules_path, "r") as fh: content = fh.read()
+            with open(rules_path, "r", errors="ignore") as fh: content = fh.read()
             content = content.replace("selinux_status_update_policyload(0)", "selinux_status_update_policyload(&selinux_state, 0)")
             if "db = &policydb;" in content:
                 content = content.replace("db = &policydb;", "extern struct policydb policydb;\n\tdb = &policydb;")
@@ -93,7 +93,7 @@ jobs:
 
         selinux_path = "drivers/kernelsu/selinux/selinux.c"
         if os.path.exists(selinux_path):
-            with open(selinux_path, "r") as fh: content = fh.read()
+            with open(selinux_path, "r", errors="ignore") as fh: content = fh.read()
             if "#include \"selinux_defs.h\"" not in content:
                 content = "#include \"selinux_defs.h\"\n" + content
             with open(selinux_path, "w") as fh: fh.write(content)
@@ -108,11 +108,12 @@ jobs:
                 with open("drivers/Makefile", "a") as f: f.write("\nobj-y += kernelsu/\n")
         '
 
-    - name: Apply Optimizations, Tweaks, and ld.lld Wrapper
+    - name: Apply CPU & GPU Performance Optimizations (-O2 & GPU 850MHz OC)
       run: |
         python3 -c '
-        import os, re
+        import os
 
+        # تحويل كود الحجم إلى كود أداء للـ CPU والـ Kernel بالكامل (-O2)
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f == "Makefile" or f.endswith(".mk"):
@@ -125,7 +126,13 @@ jobs:
                     except:
                         pass
 
-        freq_map = {"680000000": "850000000", "680000": "850000", "680MHz": "850MHz", "680mhz": "850mhz"}
+        # تطبيق كسر سرعة الـ GPU إلى 850MHz
+        gpu_map = {
+            "680000000": "850000000",
+            "680000": "850000",
+            "680MHz": "850MHz",
+            "680mhz": "850mhz"
+        }
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
@@ -133,7 +140,7 @@ jobs:
                     try:
                         with open(fp, "r", errors="ignore") as fh: content = fh.read()
                         modified = False
-                        for old_k, new_v in freq_map.items():
+                        for old_k, new_v in gpu_map.items():
                             if old_k in content:
                                 content = content.replace(old_k, new_v)
                                 modified = True
@@ -144,7 +151,7 @@ jobs:
 
         vget_path = "arch/arm64/kernel/vdso/vgettimeofday.c"
         if os.path.exists(vget_path):
-            with open(vget_path, "r") as fh: content = fh.read()
+            with open(vget_path, "r", errors="ignore") as fh: content = fh.read()
             if "memcpy(" not in content:
                 content += "\n\nvoid *memcpy(void *dest, const void *src, __SIZE_TYPE__ n) { char *d = dest; const char *s = src; while (n--) *d++ = *s++; return dest; }\n"
                 content += "void *memset(void *s, int c, __SIZE_TYPE__ n) { unsigned char *p = s; while (n--) *p++ = (unsigned char)c; return s; }\n"
@@ -152,7 +159,7 @@ jobs:
 
         vdso_mk = "arch/arm64/kernel/vdso/Makefile"
         if os.path.exists(vdso_mk):
-            with open(vdso_mk, "r") as fh: content = fh.read()
+            with open(vdso_mk, "r", errors="ignore") as fh: content = fh.read()
             content = content.replace("-shared", "-shared -ffreestanding -fno-builtin -fno-builtin-memcpy -fno-builtin-memset")
             with open(vdso_mk, "w") as fh: content = fh.write(content)
         '
@@ -191,7 +198,7 @@ jobs:
         echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Configure and Compile Kernel
+    - name: Configure and Compile Kernel with Maximum CPU & GPU Performance Flags
       run: |
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
@@ -200,8 +207,8 @@ jobs:
         fi
 
         sed -i 's/CONFIG_IKHEADERS=y/CONFIG_IKHEADERS=n/g' $(pwd)/out/.config || true
-
         sed -i 's/CONFIG_CC_OPTIMIZE_FOR_SIZE=y/CONFIG_CC_OPTIMIZE_FOR_SIZE=n/g' $(pwd)/out/.config || true
+        
         if grep -q "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" $(pwd)/out/.config; then
           sed -i 's/# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
           sed -i 's/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=n/CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y/g' $(pwd)/out/.config || true
@@ -209,6 +216,10 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
         fi
 
+        # تفعيل إعدادات أداء ومعالج البيانات (CPU Performance & Scheduling) بالكامل
+        echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
+        echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
+        echo "CONFIG_SCHED_SMT=y" >> $(pwd)/out/.config
         echo "CONFIG_IKHEADERS=n" >> $(pwd)/out/.config
         echo "CONFIG_KSU=y" >> $(pwd)/out/.config
         echo "CONFIG_KPROBES=y" >> $(pwd)/out/.config
@@ -242,10 +253,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ReSukiSU-CPU-GPU850-Perf-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-4.19-Zip
-        path: A04-ReSukiSU-AnyKernel3.zip
+        name: A04-ReSukiSU-CPU-GPU850-Perf-Zip
+        path: A04-ReSukiSU-CPU-GPU850-Perf-AnyKernel3.zip
