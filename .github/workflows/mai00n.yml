@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Advanced Performance -O2, GPU 850MHz OC, vDSO & LLD Fix)
+name: Build Kernel Samsung Wingtech A04 (GCC 11, LLD, Performance -O2 & GPU 850MHz OC - Fixed)
 
 on:
   workflow_dispatch:
@@ -73,94 +73,22 @@ jobs:
             echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-    - name: Apply Advanced Performance (-O2) & GPU OC (850MHz) & ld.lld Fix & vDSO memcpy Fix
+    - name: Apply GPU Overclock (850 MHz) safely
       run: |
-        echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
+        echo "[-] Updating Device Tree max-frequency to 850MHz..."
         python3 -c '
-        import os
-        for root, dirs, files in os.walk("."):
+        import os, re
+        for root, dirs, files in os.walk("arch/arm64/boot/dts"):
             for f in files:
-                if f == "Makefile" or f.endswith(".mk"):
+                if f.endswith((".dts", ".dtsi")):
                     fp = os.path.join(root, f)
                     try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        if "-Os" in content:
-                            content = content.replace("-Os", "-O2")
-                            with open(fp, "w") as fh:
-                                fh.write(content)
-                    except:
-                        pass
+                        with open(fp, "r", errors="ignore") as fh: content = fh.read()
+                        if "max-frequency" in content:
+                            content = re.sub(r"max-frequency\s*=\s*<[^>]+>;", "max-frequency = <850000000>;", content)
+                            with open(fp, "w") as fh: fh.write(content)
+                    except: pass
         '
-
-        echo "[-] Applying exhaustive GPU Overclock (850MHz) across source tree..."
-        python3 -c '
-        import os
-        freq_map = {
-            "680000000": "850000000",
-            "680000": "850000",
-            "680MHz": "850MHz",
-            "680mhz": "850mhz"
-        }
-        for root, dirs, files in os.walk("."):
-            for f in files:
-                if f.endswith((".c", ".h", ".dts", ".dtsi", ".txt", ".cpp")):
-                    fp = os.path.join(root, f)
-                    try:
-                        with open(fp, "r", errors="ignore") as fh:
-                            content = fh.read()
-                        modified = False
-                        for old_k, new_v in freq_map.items():
-                            if old_k in content:
-                                content = content.replace(old_k, new_v)
-                                modified = True
-                        if modified:
-                            with open(fp, "w") as fh:
-                                fh.write(content)
-                    except:
-                        pass
-        '
-
-        echo "[-] Injecting local memcpy/memset fallbacks for vDSO to prevent dynamic relocations..."
-        python3 -c '
-        import os
-        vget_path = "arch/arm64/kernel/vdso/vgettimeofday.c"
-        if os.path.exists(vget_path):
-            with open(vget_path, "r") as fh: content = fh.read()
-            if "memcpy(" not in content:
-                content += "\n\nvoid *memcpy(void *dest, const void *src, __SIZE_TYPE__ n) {\n    char *d = dest;\n    const char *s = src;\n    while (n--)\n        *d++ = *s++;\n    return dest;\n}\n"
-                content += "void *memset(void *s, int c, __SIZE_TYPE__ n) {\n    unsigned char *p = s;\n    while (n--)\n        *p++ = (unsigned char)c;\n    return s;\n}\n"
-            with open(vget_path, "w") as fh: fh.write(content)
-
-        vdso_mk = "arch/arm64/kernel/vdso/Makefile"
-        if os.path.exists(vdso_mk):
-            with open(vdso_mk, "r") as fh: content = fh.read()
-            content = content.replace("-shared", "-shared -ffreestanding -fno-builtin -fno-builtin-memcpy -fno-builtin-memset")
-            with open(vdso_mk, "w") as fh: fh.write(content)
-        '
-
-        echo "[-] Creating robust ld.lld wrapper filtering out compiler-specific flags..."
-        if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
-          sudo mv /usr/bin/ld.lld /usr/bin/ld.lld.real
-        elif [ -f /usr/local/bin/ld.lld ] && [ ! -f /usr/local/bin/ld.lld.real ]; then
-          sudo mv /usr/local/bin/ld.lld /usr/local/bin/ld.lld.real
-        fi
-        
-        sudo tee /usr/local/bin/ld.lld << 'EOF'
-        #!/bin/bash
-        NEW_ARGS=()
-        for arg in "$@"; do
-            case "$arg" in
-                -fno-builtin*|-ffreestanding|-fno-common|-fno-stack-protector)
-                    ;;
-                *)
-                    NEW_ARGS+=("$arg")
-                    ;;
-            esac
-        done
-        exec -a ld.lld /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
-        EOF
-        sudo chmod +x /usr/local/bin/ld.lld
 
     - name: Install build dependencies (GCC 11 & lld) First
       run: |
@@ -185,7 +113,7 @@ jobs:
         export STRIP=llvm-strip
         export CLANG_TRIPLE=aarch64-linux-gnu-
 
-        make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="-fcommon" HOSTCXXFLAGS="-fcommon" rsuntk-a04_defconfig
         
         cat << 'EOT' >> $(pwd)/out/.config
         CONFIG_KSU=y
@@ -198,8 +126,8 @@ jobs:
         CONFIG_CC_OPTIMIZE_FOR_SIZE=n
         EOT
 
-        make -C $(pwd) O=$(pwd)/out olddefconfig
-        make -C $(pwd) O=$(pwd)/out -j$(nproc)
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="-fcommon" HOSTCXXFLAGS="-fcommon" olddefconfig
+        make -C $(pwd) O=$(pwd)/out HOSTCFLAGS="-fcommon" HOSTCXXFLAGS="-fcommon" -j$(nproc)
 
     - name: Package & Upload
       run: |
@@ -208,10 +136,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-Kernel-GPU850-O2-Advanced.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-Kernel-GPU850-GCC11-AnyKernel3.zip * -x .git README.md LICENSE
       
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-Kernel-GPU850-O2-Advanced-Zip
-        path: A04-Kernel-GPU850-O2-Advanced.zip
+        name: A04-Kernel-GPU850-GCC11-Zip
+        path: A04-Kernel-GPU850-GCC11-AnyKernel3.zip
