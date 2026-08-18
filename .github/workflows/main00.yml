@@ -128,7 +128,7 @@ jobs:
           echo 'obj-y += kernelsu/' >> drivers/Makefile
         fi
 
-    - name: Apply Advanced Performance (-O2) & Comprehensive GPU Overclock (850MHz) & vDSO Fix
+    - name: Apply Advanced Performance (-O2) & GPU OC (850MHz) & ld.lld Fix
       run: |
         echo "[-] Forcing -O2 performance optimization globally across Makefiles..."
         python3 -c '
@@ -176,13 +176,35 @@ jobs:
                         pass
         '
 
-        echo "[-] Patching vDSO Makefile to prevent dynamic relocation errors..."
+        echo "[-] Patching vDSO Makefile..."
         VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
         if [ -f "$VDSO_MAKEFILE" ]; then
           sed -i 's/-shared/-shared -fno-builtin-memcpy -fno-builtin-memset -ffreestanding/g' "$VDSO_MAKEFILE"
         fi
 
-    - name: Install build dependencies (including GCC 11 & lld)
+        echo "[-] Creating ld.lld wrapper to filter unsupported flags..."
+        REAL_LLD=$(which ld.lld || echo "/usr/bin/ld.lld")
+        if [ -f "$REAL_LLD" ]; then
+          sudo mv "$REAL_LLD" /usr/bin/ld.lld.real
+        fi
+        
+        sudo tee /usr/local/bin/ld.lld << 'EOF'
+        #!/bin/bash
+        NEW_ARGS=()
+        for arg in "$@"; do
+            case "$arg" in
+                -fno-builtin-memcpy|-fno-builtin-memset|-ffreestanding|-fno-common|-fno-stack-protector)
+                    ;;
+                *)
+                    NEW_ARGS+=("$arg")
+                    ;;
+            esac
+        done
+        exec /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
+        EOF
+        sudo chmod +x /usr/local/bin/ld.lld
+
+    - name: Install build dependencies (GCC 11 & lld)
       run: |
         sudo apt-get update
         sudo apt-get install -y \
