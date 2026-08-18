@@ -190,11 +190,11 @@ jobs:
           sed -i 's/-shared/-shared -fno-builtin-memcpy -fno-builtin-memset -ffreestanding/g' "$VDSO_MAKEFILE"
         fi
 
-        echo "[-] Creating ld.lld wrapper to filter unsupported flags..."
-        if [ -f /usr/bin/ld.lld ]; then
+        echo "[-] Creating fixed ld.lld wrapper preserving argv[0]..."
+        if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
           sudo mv /usr/bin/ld.lld /usr/bin/ld.lld.real
-        elif [ -f /usr/local/bin/ld.lld ]; then
-          sudo mv /usr/local/bin/ld.lld /usr/bin/ld.lld.real
+        elif [ -f /usr/local/bin/ld.lld ] && [ ! -f /usr/local/bin/ld.lld.real ]; then
+          sudo mv /usr/local/bin/ld.lld /usr/local/bin/ld.lld.real
         fi
         
         sudo tee /usr/local/bin/ld.lld << 'EOF'
@@ -209,7 +209,7 @@ jobs:
                     ;;
             esac
         done
-        exec /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
+        exec -a ld.lld /usr/bin/ld.lld.real "${NEW_ARGS[@]}"
         EOF
         sudo chmod +x /usr/local/bin/ld.lld
 
