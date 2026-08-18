@@ -202,7 +202,7 @@ jobs:
             with open(vdso_mk, "w") as fh: fh.write(content)
         '
 
-        echo "[-] Creating fixed ld.lld wrapper preserving argv[0]..."
+        echo "[-] Creating robust ld.lld wrapper filtering out compiler-specific flags..."
         if [ -f /usr/bin/ld.lld ] && [ ! -f /usr/bin/ld.lld.real ]; then
           sudo mv /usr/bin/ld.lld /usr/bin/ld.lld.real
         elif [ -f /usr/local/bin/ld.lld ] && [ ! -f /usr/local/bin/ld.lld.real ]; then
@@ -214,7 +214,7 @@ jobs:
         NEW_ARGS=()
         for arg in "$@"; do
             case "$arg" in
-                -fno-builtin-memcpy|-fno-builtin-memset|-ffreestanding|-fno-common|-fno-stack-protector)
+                -fno-builtin*|-ffreestanding|-fno-common|-fno-stack-protector)
                     ;;
                 *)
                     NEW_ARGS+=("$arg")
