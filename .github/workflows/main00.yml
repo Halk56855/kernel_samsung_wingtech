@@ -234,8 +234,8 @@ jobs:
         echo "CONFIG_LTO=n" >> $(pwd)/out/.config
         echo "CONFIG_LTO_CLANG=n" >> $(pwd)/out/.config
         echo "CONFIG_THINLTO=n" >> $(pwd)/out/.config
-        echo "CONFIG_KPM=n" >> $(pwd)/out/.config
-        echo "CONFIG_KSU_SUSFS=n" >> $(pwd)/out/.config
+        echo "CONFIG_KPM=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_MANUAL_HOOK=y" >> $(pwd)/out/.config
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
