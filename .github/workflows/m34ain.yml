@@ -19,18 +19,18 @@ jobs:
           libncurses5-dev ccache make git zip wget xz-utils \
           device-tree-compiler libfdt-dev gcc-11-aarch64-linux-gnu gcc-11-arm-linux-gnueabi cpio patch
 
-    - name: Setup ReSukiSU, Official SusFS 4.19 & Apply Patches Automatically
+    - name: Setup ReSukiSU, Official SusFS 4.19 & Apply Patches with Diagnostic
       run: |
         rm -rf drivers/kernelsu ReSukiSU susfs4ksu .git/modules/ReSukiSU .git/modules/susfs4ksu fs/ksu_compat.c
         
-        # استنساخ ReSukiSU و SusFS الرسمية
+        # استنساخ المستودعات
         git clone -b main https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU
         git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
         
         python3 -c '
         import os, shutil
 
-        # تنظيف فحص الـ manual hook في ReSukiSU لمنع أي تعارض
+        # تنظيف فحص الـ manual hook في ReSukiSU
         for root, dirs, files in os.walk("ReSukiSU"):
             for f in files:
                 if f.endswith(".mk") or f == "Makefile":
@@ -61,10 +61,9 @@ jobs:
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
 
-        # تطبيق خطوات SusFS الرسمية (نسخ ملفات الـ fs و include وتطبيق الباتشات)
+        # نسخ ملفات SusFS الرسمية
         susfs_patches = "susfs4ksu/kernel_patches"
         if os.path.exists(susfs_patches):
-            # 1. نسخ ملفات fs
             src_fs = os.path.join(susfs_patches, "fs")
             if os.path.exists(src_fs):
                 for item in os.listdir(src_fs):
@@ -76,7 +75,6 @@ jobs:
                     else:
                         shutil.copy2(s, d)
 
-            # 2. نسخ ملفات include/linux
             src_inc = os.path.join(susfs_patches, "include/linux")
             if os.path.exists(src_inc):
                 os.makedirs("include/linux", exist_ok=True)
@@ -85,17 +83,28 @@ jobs:
                     d = os.path.join("include/linux", item)
                     shutil.copy2(s, d)
 
-            # 3. نسخ وتطبيق باتش KernelSU مع تفعيل الوضع المرن
+            # تطبيق باتش KernelSU مع فحص الأخطاء
             ksu_patch_src = os.path.join(susfs_patches, "KernelSU/10_enable_susfs_for_ksu.patch")
             if os.path.exists(ksu_patch_src):
                 shutil.copy2(ksu_patch_src, "drivers/kernelsu/")
-                os.system("cd drivers/kernelsu && patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true")
+                res = os.system("cd drivers/kernelsu && patch -p1 --forward < 10_enable_susfs_for_ksu.patch")
+                if res != 0:
+                    print("WARNING: 10_enable_susfs_for_ksu.patch had rejections!")
 
-            # 4. البحث وتطبيق باتش النواة لنظام 4.19
+            # تطبيق باتش النواة لنظام 4.19 مع فحص الأخطاء وملفات .rej
             for p_file in os.listdir(susfs_patches):
                 if p_file.startswith("50_add_susfs_in_kernel") and "4.19" in p_file:
                     shutil.copy2(os.path.join(susfs_patches, p_file), ".")
-                    os.system(f"patch -p1 --forward < {p_file} || true")
+                    res = os.system(f"patch -p1 --forward < {p_file}")
+                    if res != 0:
+                        print(f"ERROR: {p_file} failed to apply cleanly! Checking for .rej files...")
+                        for r, ds, fs in os.walk("."):
+                            for file in fs:
+                                if file.endswith(".rej"):
+                                    rej_path = os.path.join(r, file)
+                                    print(f"=== REJ FILE: {rej_path} ===")
+                                    with open(rej_path, "r", errors="ignore") as rf:
+                                        print(rf.read())
                     break
 
         compat_code = """
@@ -253,7 +262,7 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
         fi
 
-        # تفعيل إعدادات الأداء، SusFS الرسمية، و KPM مع تعطيل LTO لتجنب خطأ التجميع
+        # إعدادات النواة والأداء و SusFS
         echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_SCHED_SMT=y" >> $(pwd)/out/.config
@@ -269,12 +278,12 @@ jobs:
         echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $(pwd)/out/.config
         echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $(pwd)/out/.config
         
-        # تعطيل LTO لمنع أخطاء الارتباط (llvm-ar / ld.lld)
+        # تعطيل LTO لمنع مشاكل التجميع
         echo "CONFIG_LTO=n" >> $(pwd)/out/.config
         echo "CONFIG_LTO_CLANG=n" >> $(pwd)/out/.config
         echo "CONFIG_THINLTO=n" >> $(pwd)/out/.config
         
-        # تفعيل خيارات SusFS الرسمية كاملة
+        # خيارات SusFS
         echo "CONFIG_KPM=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_SUSFS=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $(pwd)/out/.config
@@ -289,7 +298,12 @@ jobs:
         make -C $(pwd) O=$(pwd)/out scripts
         make -C $(pwd) O=$(pwd)/out security/
 
-        make -C $(pwd) O=$(pwd)/out -j$(nproc) || make -C $(pwd) O=$(pwd)/out -j1
+        # تشغيل البناء مع التقاط الخطأ بدقة في حال الفشل
+        make -C $(pwd) O=$(pwd)/out -j$(nproc) || {
+          echo "=== BUILD FAILED. SHOWING LAST ERRORS ==="
+          find $(pwd)/out -name "*.o.cmd" -o -name "*.err" | head -n 20
+          exit 1
+        }
 
     - name: Package into AnyKernel3 Flashable Zip
       run: |
