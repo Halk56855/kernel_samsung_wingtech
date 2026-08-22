@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - CPU & GPU 850MHz Full Performance)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - CPU & GPU 850MHz - SusFS, KPM, LTO)
 
 on:
   workflow_dispatch:
@@ -108,12 +108,12 @@ jobs:
                 with open("drivers/Makefile", "a") as f: f.write("\nobj-y += kernelsu/\n")
         '
 
-    - name: Apply CPU & GPU Performance Optimizations (-O2 & GPU 850MHz OC)
+    - name: Apply CPU, GPU 850MHz OC, SusFS, KPM & LTO Optimizations
       run: |
         python3 -c '
         import os
 
-        # تحويل كود الحجم إلى كود أداء للـ CPU والـ Kernel بالكامل (-O2)
+        # تحويل كود الحجم إلى كود أداء (-O2)
         for root, dirs, files in os.walk("."):
             for f in files:
                 if f == "Makefile" or f.endswith(".mk"):
@@ -126,7 +126,7 @@ jobs:
                     except:
                         pass
 
-        # تطبيق كسر سرعة الـ GPU إلى 850MHz
+        # تطبيق كسر السرعة لتردد الـ GPU إلى 850MHz
         gpu_map = {
             "680000000": "850000000",
             "680000": "850000",
@@ -198,7 +198,7 @@ jobs:
         echo "KCFLAGS=-w -I$(pwd)/out/security/selinux -I$(pwd)/security/selinux/include -I$(pwd)/security/selinux/ss -I$(pwd)/out/security/selinux/ss" >> $GITHUB_ENV
         echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> $GITHUB_ENV
 
-    - name: Configure and Compile Kernel with Maximum CPU & GPU Performance Flags
+    - name: Configure and Compile Kernel with Full Features (CPU, GPU, SusFS, KPM, LTO)
       run: |
         make -C $(pwd) O=$(pwd)/out rsuntk-a04_defconfig
 
@@ -216,7 +216,7 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
         fi
 
-        # تفعيل إعدادات أداء ومعالج البيانات (CPU Performance & Scheduling) بالكامل
+        # تفعيل إعدادات الأداء، SusFS، KPM، و LTO بالكامل
         echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_SCHED_SMT=y" >> $(pwd)/out/.config
@@ -231,11 +231,19 @@ jobs:
         echo "CONFIG_SECURITY_SELINUX=y" >> $(pwd)/out/.config
         echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $(pwd)/out/.config
         echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $(pwd)/out/.config
-        echo "CONFIG_LTO=n" >> $(pwd)/out/.config
-        echo "CONFIG_LTO_CLANG=n" >> $(pwd)/out/.config
-        echo "CONFIG_THINLTO=n" >> $(pwd)/out/.config
+        
+        # تفعيل LTO و ThinLTO
+        echo "CONFIG_LTO=y" >> $(pwd)/out/.config
+        echo "CONFIG_LTO_CLANG=y" >> $(pwd)/out/.config
+        echo "CONFIG_THINLTO=y" >> $(pwd)/out/.config
+        
+        # تفعيل KPM و SusFS
         echo "CONFIG_KPM=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_SUSFS=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $(pwd)/out/.config
+        echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_MANUAL_HOOK=y" >> $(pwd)/out/.config
 
         make -C $(pwd) O=$(pwd)/out olddefconfig
@@ -253,10 +261,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-CPU-GPU850-Perf-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ReSukiSU-FullBoost-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-CPU-GPU850-Perf-Zip
-        path: A04-ReSukiSU-CPU-GPU850-Perf-AnyKernel3.zip
+        name: A04-ReSukiSU-FullBoost-Zip
+        path: A04-ReSukiSU-FullBoost-AnyKernel3.zip
