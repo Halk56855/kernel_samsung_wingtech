@@ -1,4 +1,4 @@
-name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - CPU & GPU 850MHz - SusFS Official Guide)
+name: Build Kernel Samsung Wingtech A04 (Non-GKI 4.19 - ReSukiSU - CPU & GPU 850MHz - SusFS Official)
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
           libncurses5-dev ccache make git zip wget xz-utils \
           device-tree-compiler libfdt-dev gcc-11-aarch64-linux-gnu gcc-11-arm-linux-gnueabi cpio patch
 
-    - name: Clone ReSukiSU & Official SusFS 4.19 and Apply Official Patches
+    - name: Setup ReSukiSU, Official SusFS 4.19 & Apply Patches Automatically
       run: |
         rm -rf drivers/kernelsu ReSukiSU susfs4ksu .git/modules/ReSukiSU .git/modules/susfs4ksu fs/ksu_compat.c
         
@@ -30,7 +30,7 @@ jobs:
         python3 -c '
         import os, shutil
 
-        # تنظيف فحص الـ manual hook في ReSukiSU
+        # تنظيف فحص الـ manual hook في ReSukiSU لمنع أي تعارض
         for root, dirs, files in os.walk("ReSukiSU"):
             for f in files:
                 if f.endswith(".mk") or f == "Makefile":
@@ -61,7 +61,7 @@ jobs:
 
         os.symlink(os.path.relpath(ksu_src, "drivers"), "drivers/kernelsu")
 
-        # تطبيق خطوات سيمونبانك الرسمية لدمج SusFS (نسخ ملفات الـ fs و include وتطبيق الباتشات)
+        # تطبيق خطوات SusFS الرسمية (نسخ ملفات الـ fs و include وتطبيق الباتشات)
         susfs_patches = "susfs4ksu/kernel_patches"
         if os.path.exists(susfs_patches):
             # 1. نسخ ملفات fs
@@ -85,17 +85,17 @@ jobs:
                     d = os.path.join("include/linux", item)
                     shutil.copy2(s, d)
 
-            # 3. نسخ وتطبيق باتش KernelSU
+            # 3. نسخ وتطبيق باتش KernelSU مع تفعيل الوضع المرن
             ksu_patch_src = os.path.join(susfs_patches, "KernelSU/10_enable_susfs_for_ksu.patch")
             if os.path.exists(ksu_patch_src):
                 shutil.copy2(ksu_patch_src, "drivers/kernelsu/")
-                os.system("cd drivers/kernelsu && patch -p1 < 10_enable_susfs_for_ksu.patch || true")
+                os.system("cd drivers/kernelsu && patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true")
 
-            # 4. البحث عن وتطبيق باتش النواة الخاص بـ 4.19
+            # 4. البحث وتطبيق باتش النواة لنظام 4.19
             for p_file in os.listdir(susfs_patches):
                 if p_file.startswith("50_add_susfs_in_kernel") and "4.19" in p_file:
                     shutil.copy2(os.path.join(susfs_patches, p_file), ".")
-                    os.system(f"patch -p1 < {p_file} || true")
+                    os.system(f"patch -p1 --forward < {p_file} || true")
                     break
 
         compat_code = """
@@ -147,7 +147,7 @@ jobs:
                 with open("drivers/Makefile", "a") as f: f.write("\nobj-y += kernelsu/\n")
         '
 
-    - name: Apply CPU, GPU 850MHz OC & Optimizations
+    - name: Apply CPU, GPU 850MHz Overclock & VDSO Fixes
       run: |
         python3 -c '
         import os
@@ -253,7 +253,7 @@ jobs:
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $(pwd)/out/.config
         fi
 
-        # تفعيل إعدادات الأداء، SusFS الرسمية، و KPM (مع تعطيل LTO لتلافي خطأ llvm-ar)
+        # تفعيل إعدادات الأداء، SusFS الرسمية، و KPM مع تعطيل LTO لتجنب خطأ التجميع
         echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> $(pwd)/out/.config
         echo "CONFIG_SCHED_SMT=y" >> $(pwd)/out/.config
@@ -269,12 +269,12 @@ jobs:
         echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $(pwd)/out/.config
         echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $(pwd)/out/.config
         
-        # تعطيل LTO لمنع خطأ llvm-ar
+        # تعطيل LTO لمنع أخطاء الارتباط (llvm-ar / ld.lld)
         echo "CONFIG_LTO=n" >> $(pwd)/out/.config
         echo "CONFIG_LTO_CLANG=n" >> $(pwd)/out/.config
         echo "CONFIG_THINLTO=n" >> $(pwd)/out/.config
         
-        # خيارات SusFS الرسمية
+        # تفعيل خيارات SusFS الرسمية كاملة
         echo "CONFIG_KPM=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_SUSFS=y" >> $(pwd)/out/.config
         echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $(pwd)/out/.config
@@ -298,10 +298,10 @@ jobs:
         cp out/arch/arm64/boot/dtb* AnyKernel3/ 2>/dev/null || true
         cp out/arch/arm64/boot/dtbo* AnyKernel3/ 2>/dev/null || true
         cd AnyKernel3
-        zip -r9 ../A04-ReSukiSU-SusFS-Official-AnyKernel3.zip * -x .git README.md LICENSE
+        zip -r9 ../A04-ReSukiSU-SusFS-AnyKernel3.zip * -x .git README.md LICENSE
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: A04-ReSukiSU-SusFS-Official-Zip
-        path: A04-ReSukiSU-SusFS-Official-AnyKernel3.zip
+        name: A04-ReSukiSU-SusFS-Zip
+        path: A04-ReSukiSU-SusFS-AnyKernel3.zip
