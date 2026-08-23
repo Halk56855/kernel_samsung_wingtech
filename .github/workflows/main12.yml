@@ -74,22 +74,41 @@ jobs:
                 f.write(content)
         EOF
 
-    - name: Perfect Compatibility Patch for file_wrapper.c on Linux 4.19
+    - name: Bulletproof Compatibility Patch for file_wrapper.c on Linux 4.19
       run: |
         python3 - << 'EOF'
+        import re
         path = "drivers/kernelsu/infra/file_wrapper.c"
         try:
             with open(path, "r") as f:
-                code = f.read()
+                content = f.read()
             
-            code = code.replace("p->ops.iopoll = ", "/* p->ops.iopoll disabled */ // ")
-            code = code.replace("p->ops.remap_file_range = ", "/* p->ops.remap_file_range disabled */ // ")
-            code = code.replace("fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL", "NULL")
-            code = code.replace("fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL", "NULL")
+            # Neutralize iopoll and remap_file_range assignments completely
+            content = re.sub(r'.*p->ops\.iopoll\s*=.*;', '/* p->ops.iopoll removed for Linux 4.19 */', content)
+            content = re.sub(r'.*p->ops\.remap_file_range\s*=.*;', '/* p->ops.remap_file_range removed for Linux 4.19 */', content)
+
+            # Replace ksu_wrapper_iopoll implementation with a safe dummy stub
+            content = re.sub(
+                r'static\s+.*?ksu_wrapper_iopoll\s*\([^}]*?\n\}',
+                'static int ksu_wrapper_iopoll(void) { return -EOPNOTSUPP; }',
+                content,
+                flags=re.DOTALL
+            )
+
+            # Replace ksu_wrapper_remap_file_range implementation with a safe dummy stub
+            content = re.sub(
+                r'static\s+.*?ksu_wrapper_remap_file_range\s*\([^}]*?\n\}',
+                'static int ksu_wrapper_remap_file_range(void) { return -EOPNOTSUPP; }',
+                content,
+                flags=re.DOTALL
+            )
+
+            # Handle REMAP_FILE_DEDUP fallback
+            content = content.replace("REMAP_FILE_DEDUP", "0")
 
             with open(path, "w") as f:
-                f.write(code)
-            print("Successfully patched file_wrapper.c compatibility issues for Linux 4.19")
+                f.write(content)
+            print("Successfully and robustly patched file_wrapper.c for Linux 4.19")
         except Exception as e:
             print("Error patching file_wrapper.c:", e)
         EOF
