@@ -2,11 +2,6 @@ name: Build Samsung Galaxy A04 Kernel with Wild_KSU
 
 on:
   workflow_dispatch:
-    inputs:
-      defconfig:
-        description: 'اسم ملف التكوين (rsuntk-a04_defconfig أو gki_defconfig)'
-        required: true
-        default: 'rsuntk-a04_defconfig'
 
 jobs:
   build-and-package:
@@ -43,7 +38,7 @@ jobs:
           echo "==> جاري سحب وتثبيت Wild_KSU باستخدام الوسيط (dev)..."
           curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s dev
 
-      - name: تجميع النواة وتفعيل Wild_KSU بأمان تام
+      - name: تجميع النواة وتفعيل Wild_KSU بأمان تام لـ Galaxy A04
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
@@ -51,8 +46,8 @@ jobs:
           
           mkdir -p out
 
-          # 1. تطبيق ملف الـ Defconfig الذي تختاره عند التشغيل
-          make O=out ARCH=arm64 ${{ github.event.inputs.defconfig }}
+          # 1. تطبيق ملف العدادات الخاص بـ Galaxy A04 حصرياً
+          make O=out ARCH=arm64 rsuntk-a04_defconfig
 
           # 2. تفعيل خيارات الروت في ملف التكوين الناتج
           scripts/config --file out/.config --enable CONFIG_KSU
