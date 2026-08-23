@@ -37,15 +37,11 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
-      # =========================================================
-      # 🟢 هنا موقع دمج وحقن Wild_KSU / KernelSU داخل السورس
-      # =========================================================
       - name: حقن وتثبيت Wild_KSU داخل سورس النواة
         run: |
-          echo "==> جاري جلب وسحب ملفات Wild_KSU / KernelSU..."
-          # سحب وتثبيت KernelSU / Wild_KSU تلقائياً في مجلد KernelSU داخل السورس
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          
+          echo "==> جاري سحب وتثبيت Wild_KSU باستخدام الوسيط (dev)..."
+          curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s dev
+
       - name: تجميع النواة وتفعيل Wild_KSU
         run: |
           export ARCH=arm64
@@ -54,15 +50,15 @@ jobs:
           
           mkdir -p out
 
-          # 1. تطبيق الـ defconfig الأساسي لـ A04
+          # 1. تطبيق إعدادات هاتف Galaxy A04
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig }}
 
-          # 2. تفعيل خيار KernelSU / Wild_KSU داخل ملف التكوين الناتج (.config)
+          # 2. تفعيل خيارات الروت في ملف التكوين الناتج
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
 
-          # 3. بدء تجميع النواة الكاملة بالتعريفات و Wild_KSU
-          echo "==> بدء عملية البناء..."
+          # 3. بدء عملية البناء الشاملة (مع الحفاظ على التعريفات ومجلدات السورس الأصلية)
+          echo "==> بدء تجميع النواة..."
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-android- \
