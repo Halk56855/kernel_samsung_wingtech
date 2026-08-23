@@ -1,4 +1,4 @@
-name: Build and Package Samsung Galaxy A04 Kernel
+name: Build Samsung Galaxy A04 Kernel with Wild_KSU
 
 on:
   workflow_dispatch:
@@ -37,42 +37,49 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
-      - name: تجميع النواة بأمان تام (حفظ السورس والتعريفات)
+      # =========================================================
+      # 🟢 هنا موقع دمج وحقن Wild_KSU / KernelSU داخل السورس
+      # =========================================================
+      - name: حقن وتثبيت Wild_KSU داخل سورس النواة
+        run: |
+          echo "==> جاري جلب وسحب ملفات Wild_KSU / KernelSU..."
+          # سحب وتثبيت KernelSU / Wild_KSU تلقائياً في مجلد KernelSU داخل السورس
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          
+      - name: تجميع النواة وتفعيل Wild_KSU
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-          
-          # توجيه مسار المترجمات لنظام التشغيل المؤقت
           export PATH=$PWD/toolchains/aarch64-linux-android-4.9/bin:$PWD/toolchains/arm-linux-androideabi-4.9/bin:$PATH
           
-          # إنشاء مجلد مخرجات منفصل (يضمن عدم المساس بالملفات الأصلية)
           mkdir -p out
 
-          echo "==> تطبيق إعدادات هاتف Galaxy A04 (${{ github.event.inputs.defconfig }})..."
+          # 1. تطبيق الـ defconfig الأساسي لـ A04
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig }}
 
-          echo "==> بدء عملية تجميع النواة والتعريفات وكافة المكونات..."
+          # 2. تفعيل خيار KernelSU / Wild_KSU داخل ملف التكوين الناتج (.config)
+          scripts/config --file out/.config --enable CONFIG_KSU
+          scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
+
+          # 3. بدء تجميع النواة الكاملة بالتعريفات و Wild_KSU
+          echo "==> بدء عملية البناء..."
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
-      - name: دمج وحزم النواة داخل AnyKernel3 (إنشاء ملف قابل للتفليش)
+      - name: دمج وحزم النواة داخل AnyKernel3
         run: |
-          # نسخ ملف النواة الأساسي الملفات الناتجة إلى مجلد AnyKernel3
           cp out/arch/arm64/boot/Image AnyKernel3/
-          
-          # نسخ ملفات الـ dtb و dtbo إن وجدت لضمان عمل الشاشة والقطع بشكل سليم
           if [ -f out/arch/arm64/boot/dtb.img ]; then cp out/arch/arm64/boot/dtb.img AnyKernel3/; fi
           if [ -f out/arch/arm64/boot/dtbo.img ]; then cp out/arch/arm64/boot/dtbo.img AnyKernel3/; fi
 
-          # ضغط المجلد بالكامل لإنتاج ملف الـ Zip النهائي
           cd AnyKernel3
-          zip -r9 ../Galaxy-A04-Kernel-Flashable.zip *
+          zip -r9 ../Galaxy-A04-WildKSU-Kernel.zip *
           cd ..
 
-      - name: رفع ملف الـ Zip النهائي الجاهز للتفليش (Artifacts)
+      - name: رفع ملف الـ Zip النهائي الجاهز للتفليش
         uses: actions/upload-artifact@v4
         with:
-          name: Galaxy-A04-Flashable-Kernel
-          path: Galaxy-A04-Kernel-Flashable.zip
+          name: Galaxy-A04-WildKSU-Kernel
+          path: Galaxy-A04-WildKSU-Kernel.zip
