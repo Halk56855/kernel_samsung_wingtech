@@ -46,21 +46,22 @@ jobs:
           
           mkdir -p out
 
-          # 1. تطبيق ملف العدادات الخاص بـ Galaxy A04 حصرياً
+          # 1. تطبيق ملف الإعدادات الخاص بـ Galaxy A04 حصرياً
           make O=out ARCH=arm64 rsuntk-a04_defconfig
 
           # 2. تفعيل خيارات الروت في ملف التكوين الناتج
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
 
-          # 3. بدء تجميع النواة مع توجيه HOSTCC لـ gcc-10 لحل مشكلة السكربتات
+          # 3. بدء تجميع النواة مع إضافة HOSTCFLAGS="-fcommon" لحل خطأ الـ scripts نهائياً
           echo "==> بدء تجميع النواة والتعريفات..."
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             HOSTCC=gcc-10 \
-            HOSTCXX=g++-10
+            HOSTCXX=g++-10 \
+            HOSTCFLAGS="-fcommon"
 
       - name: دمج وحزم النواة داخل AnyKernel3
         run: |
