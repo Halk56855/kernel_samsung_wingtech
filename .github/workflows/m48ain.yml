@@ -1,0 +1,78 @@
+name: Build and Package Samsung Galaxy A04 Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: 'ملف التكوين الخاص بالهاتف'
+        required: true
+        default: 'rsuntk-a04_defconfig'
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: سحب الشفرة المصدرية للنواة (Checkout Repository)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: تثبيت أدوات وحزم البناء الأساسية
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev \
+            lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libssl-dev \
+            libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools \
+            xsltproc yasm zlib1g-dev python3 make wget zip
+
+      - name: تحميل مترجم الأكواد (Toolchain GCC 4.9)
+        run: |
+          mkdir -p toolchains
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchains/aarch64-linux-android-4.9
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git toolchains/arm-linux-androideabi-4.9
+
+      - name: استنساخ أداة AnyKernel3 المخصصة لـ A04
+        run: |
+          git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+
+      - name: تجميع النواة بأمان تام (حفظ السورس والتعريفات)
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          
+          # توجيه مسار المترجمات لنظام التشغيل المؤقت
+          export PATH=$PWD/toolchains/aarch64-linux-android-4.9/bin:$PWD/toolchains/arm-linux-androideabi-4.9/bin:$PATH
+          
+          # إنشاء مجلد مخرجات منفصل (يضمن عدم المساس بالملفات الأصلية)
+          mkdir -p out
+
+          echo "==> تطبيق إعدادات هاتف Galaxy A04 (${{ github.event.inputs.defconfig }})..."
+          make O=out ARCH=arm64 ${{ github.event.inputs.defconfig }}
+
+          echo "==> بدء عملية تجميع النواة والتعريفات وكافة المكونات..."
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+
+      - name: دمج وحزم النواة داخل AnyKernel3 (إنشاء ملف قابل للتفليش)
+        run: |
+          # نسخ ملف النواة الأساسي الملفات الناتجة إلى مجلد AnyKernel3
+          cp out/arch/arm64/boot/Image AnyKernel3/
+          
+          # نسخ ملفات الـ dtb و dtbo إن وجدت لضمان عمل الشاشة والقطع بشكل سليم
+          if [ -f out/arch/arm64/boot/dtb.img ]; then cp out/arch/arm64/boot/dtb.img AnyKernel3/; fi
+          if [ -f out/arch/arm64/boot/dtbo.img ]; then cp out/arch/arm64/boot/dtbo.img AnyKernel3/; fi
+
+          # ضغط المجلد بالكامل لإنتاج ملف الـ Zip النهائي
+          cd AnyKernel3
+          zip -r9 ../Galaxy-A04-Kernel-Flashable.zip *
+          cd ..
+
+      - name: رفع ملف الـ Zip النهائي الجاهز للتفليش (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-A04-Flashable-Kernel
+          path: Galaxy-A04-Kernel-Flashable.zip
