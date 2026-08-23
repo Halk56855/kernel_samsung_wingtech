@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: 'ملف التكوين الخاص بالهاتف'
+        description: 'اسم ملف التكوين (rsuntk-a04_defconfig أو gki_defconfig)'
         required: true
         default: 'rsuntk-a04_defconfig'
 
@@ -18,14 +18,15 @@ jobs:
         with:
           submodules: true
 
-      - name: تثبيت أدوات وحزم البناء الأساسية
+      - name: تثبيت أدوات البناء و GCC 10 (لتوافق نواة 4.19 القديمة)
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex \
             g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev \
             lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libssl-dev \
             libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools \
-            xsltproc yasm zlib1g-dev python3 make wget zip
+            xsltproc yasm zlib1g-dev python3 make wget zip \
+            gcc-10 g++-10
 
       - name: تحميل مترجم الأكواد (Toolchain GCC 4.9)
         run: |
@@ -42,7 +43,7 @@ jobs:
           echo "==> جاري سحب وتثبيت Wild_KSU باستخدام الوسيط (dev)..."
           curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s dev
 
-      - name: تجميع النواة وتفعيل Wild_KSU
+      - name: تجميع النواة وتفعيل Wild_KSU بأمان تام
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
@@ -50,19 +51,21 @@ jobs:
           
           mkdir -p out
 
-          # 1. تطبيق إعدادات هاتف Galaxy A04
+          # 1. تطبيق ملف الـ Defconfig الذي تختاره عند التشغيل
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig }}
 
           # 2. تفعيل خيارات الروت في ملف التكوين الناتج
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
 
-          # 3. بدء عملية البناء الشاملة (مع الحفاظ على التعريفات ومجلدات السورس الأصلية)
-          echo "==> بدء تجميع النواة..."
+          # 3. بدء تجميع النواة مع توجيه HOSTCC لـ gcc-10 لحل مشكلة السكربتات
+          echo "==> بدء تجميع النواة والتعريفات..."
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            HOSTCC=gcc-10 \
+            HOSTCXX=g++-10
 
       - name: دمج وحزم النواة داخل AnyKernel3
         run: |
