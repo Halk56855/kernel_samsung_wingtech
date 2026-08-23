@@ -23,9 +23,8 @@ jobs:
             xsltproc yasm zlib1g-dev python3 make wget zip \
             gcc-10 g++-10
 
-      - name: إصلاح توافق Bison الحديث مع نواة 4.19 (تخطي أخطاء scripts/dtc)
+      - name: إصلاح توافق Bison الحديث مع نواة 4.19
         run: |
-          # إزالة -Werror من ملف تكوين الـ dtc لمنع توقف البناء بسبب قيود أوبونتو 22.04
           sed -i 's/-Werror//g' scripts/dtc/Makefile
 
       - name: تحميل مترجم الأكواد (Toolchain GCC 4.9)
@@ -43,22 +42,55 @@ jobs:
           echo "==> جاري سحب وتثبيت Wild_KSU باستخدام الوسيط (dev)..."
           curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s dev
 
-      - name: تجميع النواة وتفعيل Wild_KSU بأمان تام لـ Galaxy A04
+      - name: إصلاح توافق Wild_KSU (file_wrapper.c) مع نواة 4.19 القديمة
+        run: |
+          python3 -c '
+          path = "drivers/kernelsu/infra/file_wrapper.c"
+          try:
+              with open(path, "r") as f:
+                  content = f.read()
+              lines = content.splitlines()
+              new_lines = []
+              for line in lines:
+                  if "remap_file_range" in line:
+                      new_lines.append("// " + line + " // Patched for kernel 4.19")
+                  else:
+                      new_lines.append(line)
+              with open(path, "w") as f:
+                  f.write("\n".join(new_lines))
+              print("Successfully patched file_wrapper.c for kernel 4.19")
+          except Exception as e:
+              print(f"Skipping patch or file not found: {e}")
+          '
+
+      - name: إعداد وتكوين النواة لـ Galaxy A04
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          mkdir -p out
+
+          # 1. تطبيق ملف الإعدادات الخاص بـ Galaxy A04
+          make O=out ARCH=arm64 rsuntk-a04_defconfig
+
+          # 2. تفعيل خيارات KSU في ملف التكوين
+          scripts/config --file out/.config --enable CONFIG_KSU
+          scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
+
+      - name: بناء أدوات المساعد (Scripts) أولاً لتجنب أخطاء التوافق
+        run: |
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            HOSTCC=gcc-10 \
+            HOSTCXX=g++-10 \
+            HOSTCFLAGS="-fcommon" \
+            scripts
+
+      - name: تجميع النواة بالكامل
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$PWD/toolchains/aarch64-linux-android-4.9/bin:$PWD/toolchains/arm-linux-androideabi-4.9/bin:$PATH
-          
-          mkdir -p out
 
-          # 1. تطبيق ملف الإعدادات الخاص بـ Galaxy A04 حصرياً
-          make O=out ARCH=arm64 rsuntk-a04_defconfig
-
-          # 2. تفعيل خيارات الروت في ملف التكوين الناتج
-          scripts/config --file out/.config --enable CONFIG_KSU
-          scripts/config --file out/.config --enable CONFIG_KSU_TAMPER_SYS_PROC_NODE
-
-          # 3. بدء تجميع النواة مع توجيه HOSTCC لـ gcc-10 وتفعيل -fcommon
           echo "==> بدء تجميع النواة والتعريفات..."
           make -j$(nproc) O=out \
             ARCH=arm64 \
